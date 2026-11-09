@@ -69,8 +69,14 @@ enum EGrooveFields { GF_MODEL, GF_TUNE, GF_SWEEP, GF_DECAY, GF_SNAP, GF_COLOR, G
 	GF_DLSEND, GF_RVSEND, // delay / reverb send of the selected lane
 	GF_FILTER, GF_RESO,   // resonant filter of the selected lane
 	GF_VOLUME };          // drum master volume (whole groove pattern)
-int  groove_get_field(int field);           // in param units (FULL = 1024)
+// Value of a field of the selected lane, in param units (FULL = 1024). While a
+// step pad is held these read / write that step's parameter lock instead.
+int  groove_get_field(int field);
 void groove_set_field(int field, int value);
+// modulation amount (source = Plinky mod source M_ENV..M_RND) of a lane field
+int  groove_get_mod(int field, int source);
+void groove_set_mod(int field, int source, int value);
+void groove_clear_pressed(void);            // Clear tapped (removes the held step's locks)
 const char* groove_model_name(void);        // model of the selected lane
 const char* groove_field_name(int field);   // OLED name, e.g. "Pitch Sweep"
 const char* groove_field_str(int field, char* buf); // OLED value text

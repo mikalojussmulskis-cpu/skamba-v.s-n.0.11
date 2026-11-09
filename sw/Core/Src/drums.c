@@ -24,7 +24,7 @@
 
 #define SR 31250.f        // Plinky's audio sample rate (ACCURATE_FS)
 #define VOICES 6          // drum polyphony (kicks are never stolen)
-#define OUT_GAIN 18000.f  // at master volume 255 and lane level 255
+#define OUT_GAIN 36000.f  // at master volume 255 and lane level 255
 #define SILENT 5e-4f      // a voice stops below this amplitude (about -66 dB)
 #define PH32 4294967296.f // 2^32: phase scale of the metal oscillators
 #define SUB 32            // voices are rendered in sub-blocks of 32 samples (keeps the ISR stack small)
@@ -62,7 +62,6 @@ typedef struct DrumVoice {
 	float an, kn, kn_tail, a0;     // amplitude, decay, decay after the clap bursts, burst level
 	float k1, z1;                  // one-pole high-pass (k1 = 0: bypass)
 	float ea1, ea2, ea3, ek, ez1, ez2; // 2-pole state-variable filter (coefficients, state)
-	float cl, cb, ch;              // its output mix: low-pass, band-pass (normalised), high-pass
 	float nmix;                    // metal: amount of white noise blended in
 	float mf;                      // metal: Hz -> 32-bit phase increment (includes tune)
 	const float* mtab;             // metal: oscillator frequencies
@@ -72,7 +71,7 @@ typedef struct DrumVoice {
 	float drv0;                    // built-in drive of the model
 	uint32_t rng;
 	uint16_t clap_timer;
-	uint8_t clap_left, osc, exc, nmetal, model, lane, active;
+	uint8_t clap_left, osc, exc, nmetal, emode, model, lane, active;
 } DrumVoice;
 
 static DrumVoice dv[VOICES];
@@ -128,9 +127,7 @@ static void exc_filter(DrumVoice* d, int mode, float fc, float q) {
 	d->ea1 = 1.f / (1.f + g * (g + d->ek));
 	d->ea2 = g * d->ea1;
 	d->ea3 = g * d->ea2;
-	d->cl = (mode == EF_LP) ? 1.f : 0.f;
-	d->cb = (mode == EF_BP) ? d->ek : 0.f;
-	d->ch = (mode == EF_HP) ? 1.f : 0.f;
+	d->emode = mode;
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +402,9 @@ HOT static void pass_fm(DrumVoice* d, float* buf, int n) {
 HOT static void pass_excitation(DrumVoice* d, float* buf, int n) {
 	uint32_t rng = d->rng;
 	float z1 = d->z1, s1 = d->ez1, s2 = d->ez2, an = d->an;
-	const float k1 = d->k1, a1 = d->ea1, a2 = d->ea2, a3 = d->ea3, k = d->ek, cl = d->cl, cb = d->cb, ch = d->ch, kn = d->kn;
+	const float k1 = d->k1, a1 = d->ea1, a2 = d->ea2, a3 = d->ea3, k = d->ek, kn = d->kn;
+	// output mix of the filter responses (low-pass, normalised band-pass, high-pass)
+	const float cl = d->emode == EF_LP ? 1.f : 0.f, cb = d->emode == EF_BP ? k : 0.f, ch = d->emode == EF_HP ? 1.f : 0.f;
 	if (d->exc == EXC_METAL) {
 		const int nm = d->nmetal;
 		uint32_t mph[6], minc[6];
@@ -482,7 +481,7 @@ HOT void drums_render(int master) {
 		const float cl = (fmode == 1) ? 1.f : 0.f, ch = 1.f - cl;
 		const float drv = d->drv0 + p->drive * (4.f / 255.f), dg = 1.f + drv;
 		const float gd = p->level * mg;
-		const float gdl = gd * p->dlsend * (0.5f / 255.f), grv = gd * p->rvsend * (0.5f / 255.f);
+		const float gdl = gd * p->dlsend * (0.25f / 255.f), grv = gd * p->rvsend * (0.25f / 255.f);
 
 		for (int h = 0; h < DRUM_BLOCK; h += SUB) {
 			// 1) tone

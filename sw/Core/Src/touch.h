@@ -367,6 +367,7 @@ void on_shift_down(void) {
 		break;
 	case SB_CLEAR: // delete/clear. TODO: hold down in preset mode to clear a pattern/sample/preset. in play mode, supress notes.
 		clearlatch();
+		if (GROOVE_GRID) groove_clear_pressed(); // GROOVE HOOK: remove the held step's parameter locks
 		break; 
 	case SB_PRESET:
 		editmode = EM_PRESET;

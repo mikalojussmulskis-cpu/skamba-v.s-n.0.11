@@ -613,3 +613,31 @@ Estimated free stack is now about 1.08 KB (1,448 measured minus 364 added). Veri
 | Phase 5 `GROOVE_STATS=1` | 417,428 | 4,460 | 29,836 |
 
 Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `drums_render` frame). Must be verified with the stats build. If it's under 400 B, shrink `DrumVoice` or move the render buffer.
+
+### Phase 6: parameter locks, drum modulation, drum-view param filtering (done)
+- **Parameter locks** (format v3: `GrooveLock {step, lane, field, value}` × 64 per pattern):
+  - Hold a step pad and turn the encoder: the selected drum param is locked on that step. Locking an empty step places a hit there.
+  - Releasing a step without having locked anything toggles it, so a tap still works as before.
+  - A lock set back to the lane value is removed. Clear tapped while holding a step removes its locks; Clear + step deletes the step and its locks.
+  - Locked steps pulse on the LEDs. The OLED shows "Step N / k locks", and "Drum L step N" as the page while editing.
+- **Drum modulation** (`GrooveMod {lane, field, source, amount}` × 24 per pattern): in the drum grid, the mod-source column (C8) edits per-lane amounts for:
+  - knob/CV/LFO A, B, X, Y (`mod_cur`);
+  - Pressure (velocity of the hit);
+  - Random (unipolar for +, bipolar for −). Env has no effect on drums.
+
+  Modulation is applied at each hit. Hits modulated by A/B/X/Y also follow live every block. Clear-mod (long encoder press) works.
+- **Hit parameters**: `lane_eff[l]` = lane + step locks + modulation, used only when locks or mods apply. Plain hits still read the lane live.
+- **Drum view filters Plinky-only params**: sound, env, arp/seq, sampler and jitter rows (except the drum-mapped pads and the two Groove pads) can't be selected; the pop-up says "Plinky pads only". The encoder and slider can't edit them either. FX, tempo/swing, LFO/CV rows and the mixer stay.
+- **Encoder fix**: drum values (0–255) and mod amounts are stored coarser than the encoder's 1-unit step. Values now round in the direction of the turn, so slow turns change them.
+- **Levels**: drum gain ×2 (`OUT_GAIN` 36000). Send scaling halved so sends keep their absolute level. Default kit reverb sends ÷3.
+- **Stats build**: the stack is now measured from `_end` + 64 B. The only heap user is newlib's `rand()` state (~30 B), so the old 512 B offset under-reported free stack by about 470 B.
+- **Pattern switching (user report)**: logic verified by a host test (save, switch, load, migrate). In the *Plinky pads* view the Preset-mode pattern pads choose Plinky's melody patterns by design.
+- **Host test** `groovetest/t.c` (scratchpad): 25 checks of locks, mods, encoder rounding, storage and migration, all passing. A low-level filter sweep over 1,944 configs is stable.
+- `GROOVE=0 FACTORY_TEST_JIG=1` is still byte-identical to v0.B4.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Baseline v0.B4 | 408,540 | 13,348 | 27,624 |
+| Phase 6 default | 419,324 | **2,564** | 30,240 (+2,616 vs baseline) |
+
+**Flash is nearly full.** Next step before new features: compile third-party code (tinyusb, ST HAL) with `-Os`, only when `GROOVE_ENABLE`, so the `GROOVE=0` binary stays identical. Expected gain: several KB.

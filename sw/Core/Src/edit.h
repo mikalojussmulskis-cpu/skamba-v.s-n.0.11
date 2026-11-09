@@ -145,7 +145,11 @@ void finger_editing(int fi, int frame) {
 			encval -= ev << 2;
 			int pi = edit_param;
 			if (pi >= P_LAST) pi = last_edit_param;
-			if ((pi < P_LAST) && (editmode == EM_PLAY || editmode == EM_PARAMSA || editmode == EM_PARAMSB)) {
+			if ((pi < P_LAST) && (editmode == EM_PLAY || editmode == EM_PARAMSA || editmode == EM_PARAMSB)
+#if GROOVE_ENABLE
+				&& !(GROOVE_GRID && groove_param_blocked(pi)) // GROOVE HOOK
+#endif
+				) {
 				int cur = GetParam(pi, edit_mod);
 				int prev = cur;
 				int f = param_flags[pi];
@@ -397,6 +401,12 @@ void finger_editing(int fi, int frame) {
 				edit_param = (fyi - 1) * 12 + (fi - 1);
 #endif
 				if (editmode == EM_PARAMSB) edit_param += 6;
+#if GROOVE_ENABLE
+				if (GROOVE_GRID && groove_param_blocked(edit_param)) { // GROOVE HOOK: Plinky-only param
+					if (trig) ShowMessage(F_16_BOLD, "Plinky pads only", "not used by drums");
+					edit_param = old;
+				}
+#endif
 				if (trig) {
 #ifndef NEW_LAYOUT
 					if (fi == 1 && fyi == 0) {
@@ -464,7 +474,11 @@ void finger_editing(int fi, int frame) {
 				edit_mod = fyi;
 				
 			}
-			if (fi == 0 && edit_param < P_LAST && pressurestable) {
+			if (fi == 0 && edit_param < P_LAST && pressurestable
+#if GROOVE_ENABLE
+				&& !(GROOVE_GRID && groove_param_blocked(edit_param)) // GROOVE HOOK
+#endif
+				) {
 				int pi = edit_param;
 				bool issigned = param_flags[pi] & FLAG_SIGNED;
 				issigned |= (edit_mod != M_BASE);

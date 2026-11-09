@@ -864,11 +864,32 @@ static int groove_field_for_param(int p) {
 }
 #endif
 
+#if GROOVE_ENABLE
+// GROOVE HOOK: in the drum grid, params that only affect Plinky's own voices or
+// its melody sequencer can't be selected or edited (switch to Plinky pads).
+// Drum lane params, the FX (delay, reverb, tempo, swing), the LFO / CV rows
+// (they modulate the drums) and the mixer stay available.
+static int groove_param_blocked(int p) {
+	if (groove_field_for_param(p) >= 0 || p == P_ENV1_UNUSED || p == P_ENV2_UNUSED)
+		return 0;
+	switch (p / 6) {
+	case PG_SOUND1: case PG_SOUND2: case PG_ENV1: case PG_ENV2:
+	case PG_ARP: case PG_SEQ: case PG_SAMPLER: case PG_JITTER:
+		return 1;
+	}
+	return p == P_RVUNUSED;
+}
+_Static_assert(M_ENV == 1 && M_PRESSURE == 2 && M_A == 3 && M_Y == 6 && M_RND == 7 && SB_CLEAR == 5, "groove.c numbering");
+#endif
+
 int GetParam(u8 paramidx, u8 mod) {
 	if (paramidx == P_HEADPHONE)
 		return mod ? 0 : GetHeadphoneAsParam();
 #if GROOVE_ENABLE
-	if (mod == M_BASE && groove_field_for_param(paramidx) >= 0) return groove_get_field(groove_field_for_param(paramidx)); // GROOVE HOOK
+	if (groove_field_for_param(paramidx) >= 0) { // GROOVE HOOK: drum lane value / modulation amount
+		int f = groove_field_for_param(paramidx);
+		return mod == M_BASE ? groove_get_field(f) : groove_get_mod(f, mod);
+	}
 #endif
 	return rampreset.params[paramidx][mod];
 }
@@ -877,7 +898,11 @@ void EditParamNoQuant(u8 paramidx, u8 mod, s16 data) {
 	if (paramidx >= P_LAST || mod >= M_LAST)
 		return;
 #if GROOVE_ENABLE
-	if (mod == M_BASE && groove_field_for_param(paramidx) >= 0) { groove_set_field(groove_field_for_param(paramidx), data); return; } // GROOVE HOOK
+	if (groove_field_for_param(paramidx) >= 0) { // GROOVE HOOK: drum lane value / modulation amount
+		int f = groove_field_for_param(paramidx);
+		if (mod == M_BASE) groove_set_field(f, data); else groove_set_mod(f, mod, data);
+		return;
+	}
 #endif
 	if (paramidx == P_HEADPHONE) {
 		if (mod == M_BASE) {
