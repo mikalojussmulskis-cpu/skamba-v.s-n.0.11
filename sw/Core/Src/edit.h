@@ -425,6 +425,11 @@ void finger_editing(int fi, int frame) {
 				if (edit_param<0 || edit_param>P_LAST)
 					edit_param = P_LAST;
 				if (edit_param != old && edit_param < P_LAST) {
+#if GROOVE_ENABLE
+					if (groove_field_for_param(edit_param) >= 0) // GROOVE HOOK: drum lane names
+						ShowMessage(F_20_BOLD, groove_field_name(groove_field_for_param(edit_param)), groove_lane_label());
+					else
+#endif
 					ShowMessage(F_20_BOLD, paramnames[edit_param], pagenames[edit_param / 6]);
 				}
 				static int firsttaptime;

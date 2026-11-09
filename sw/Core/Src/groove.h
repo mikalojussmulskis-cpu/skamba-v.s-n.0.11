@@ -65,12 +65,20 @@ extern short drum_bus_dry[64], drum_bus_dl[32], drum_bus_rv[32];
 extern int groove_rv_in; // drum reverb send for the current Reverb2() call
 
 // --- drum lane sound, edited through printed param pads in the drum grid ----
-enum EGrooveFields { GF_MODEL, GF_TUNE, GF_SWEEP, GF_DECAY, GF_SNAP, GF_TONE, GF_DRIVE, GF_LEVEL,
+enum EGrooveFields { GF_MODEL, GF_TUNE, GF_SWEEP, GF_DECAY, GF_SNAP, GF_COLOR, GF_DRIVE, GF_LEVEL,
 	GF_DLSEND, GF_RVSEND, // delay / reverb send of the selected lane
+	GF_FILTER, GF_RESO,   // resonant filter of the selected lane
 	GF_VOLUME };          // drum master volume (whole groove pattern)
 int  groove_get_field(int field);           // in param units (FULL = 1024)
 void groove_set_field(int field, int value);
 const char* groove_model_name(void);        // model of the selected lane
+const char* groove_field_name(int field);   // OLED name, e.g. "Pitch Sweep"
+const char* groove_field_str(int field, char* buf); // OLED value text
+const char* groove_lane_label(void);        // "Drum 3"
+
+// --- Plinky voice limit in Groove mode (4 notes), DoAudio + UpdateEnvelope --
+extern unsigned char groove_voice_kill;     // stolen voices: fade out, stay silent until replayed
+unsigned char groove_voice_alloc(unsigned char down, unsigned char trig, const float* vol0, int stride);
 
 // --- groove patterns: 24 slots in flash, chosen with the Preset-mode pattern pads
 #define GROOVE_SLOTS 24

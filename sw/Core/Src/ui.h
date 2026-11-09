@@ -592,7 +592,7 @@ void DrawFlags()
 const char *getparamstr(int p, int mod, int v, char *valbuf, char *decbuf) {
 	if (decbuf) *decbuf = 0;
 #if GROOVE_ENABLE
-	if (mod == M_BASE && p == P_PWM && GROOVE_GRID) return groove_model_name(); // GROOVE HOOK
+	if (mod == M_BASE && groove_field_for_param(p) >= 0) return groove_field_str(groove_field_for_param(p), valbuf); // GROOVE HOOK
 #endif
 	int valmax = param_flags[p] & FLAG_MASK;
 	int vscale = valmax ? (mini(v, FULL - 1) * valmax) / FULL : v;
@@ -890,6 +890,13 @@ void editmode_ui(void) {
 			}
 			drawstr(0, 0, F_12, (ui_edit_mod == 0) ? pagename : modnames[ui_edit_mod]);
 			const char* pn = paramnames[pi];
+#if GROOVE_ENABLE
+			if (groove_field_for_param(pi) >= 0) { // GROOVE HOOK: drum lane / drum volume names
+				pn = groove_field_name(groove_field_for_param(pi));
+				if (ui_edit_mod == 0 && groove_field_for_param(pi) != GF_VOLUME)
+					pagename = groove_lane_label();
+			}
+#endif
 			int pw = strwidth(F_16_BOLD, pn);
 			if (pw>64) 
 				drawstr(0, 20, F_12_BOLD, pn);

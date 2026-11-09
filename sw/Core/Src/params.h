@@ -839,20 +839,24 @@ void SetPattern(u8 pattern, bool force) {
 
 #if GROOVE_ENABLE
 // GROOVE HOOK: in the drum grid these printed pads edit the selected drum lane
-// instead of the preset (shape = drum model, pitch = tune, glide = pitch sweep,
-// decay, noise = snap, resonance = tone, distortion = drive, sensitivity = level)
+// instead of the preset: shape = drum type, pitch = tune, glide = pitch sweep,
+// decay, noise = snap, osc interval = colour, distortion = drive,
+// sensitivity = level, delay / reverb send, HPF = filter (LP / off / HP),
+// resonance = filter resonance. Params 2 + HPF pad (unprinted) = drum volume.
 static int groove_field_for_param(int p) {
 	if (p == P_SYS_UNUSED1 && GROOVE_IS_ON) return GF_VOLUME; // unprinted pad: drum master volume
 	if (!GROOVE_GRID) return -1;
 	switch (p) {
 	case P_DLSEND: return GF_DLSEND;
 	case P_RVSEND: return GF_RVSEND;
+	case P_INTERVAL: return GF_COLOR;
+	case P_MIXHPF: return GF_FILTER;
 	case P_PWM: return GF_MODEL;
 	case P_PITCH: return GF_TUNE;
 	case P_GLIDE: return GF_SWEEP;
 	case P_D: return GF_DECAY;
 	case P_NOISE: return GF_SNAP;
-	case P_MIXRESO: return GF_TONE;
+	case P_MIXRESO: return GF_RESO;
 	case P_DRIVE: return GF_DRIVE;
 	case P_SENS: return GF_LEVEL;
 	}

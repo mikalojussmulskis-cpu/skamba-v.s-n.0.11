@@ -27,7 +27,7 @@
 // later go at the end; bytes that were never written read back as 0xFF.
 
 #define GROOVE_MAGIC 0x31565247u // "GRV1"
-#define GROOVE_VERSION 1
+#define GROOVE_VERSION 2 // v2: drum lanes got a resonant filter (filter, reso)
 #define GROOVE_LANES 8
 #define GROOVE_STEPS 64
 #define GROOVE_PAGE 16
@@ -45,8 +45,7 @@ typedef struct GrooveLane { // 16 bytes
 	u8 start;  // 0..63
 	u8 flags;  // LANE_MUTE
 	u8 rsv0;
-	DrumParams snd; // 10 bytes: model, tune, sweep, decay, snap, tone, drive, level, delay send, reverb send
-	u8 rsv[2];
+	DrumParams snd; // 12 bytes: model, tune, sweep, decay, snap, colour, drive, level, delay/reverb send, filter, reso
 } GrooveLane;
 
 typedef struct GroovePattern { // 656 bytes
@@ -57,23 +56,23 @@ typedef struct GroovePattern { // 656 bytes
 	GrooveLane lane[GROOVE_LANES];
 	u8 step[GROOVE_LANES][GROOVE_STEPS];
 } GroovePattern;
-_Static_assert(sizeof(DrumParams) == 10, "drum params layout");
+_Static_assert(sizeof(DrumParams) == 12, "drum params layout");
 _Static_assert(sizeof(GrooveLane) == 16, "lane layout");
 _Static_assert(sizeof(GroovePattern) == 656, "pattern layout");
 _Static_assert((sizeof(GroovePattern) & 7) == 0, "flash writes are 8-byte units");
 
 #define VOLUME_DEFAULT 128
 
-// default kit:                   model     tune sweep decay snap tone drive level  dly  rvb
+// default kit                 model      tune sweep decay snap colour drive level  dly  rvb  filter reso
 static const DrumParams default_kit[GROOVE_LANES] = {
-	{ DM_KICK,    0, 150, 120,  70, 128,  40, 230,   0,   0 },
-	{ DM_SNARE,   0,  40,  90, 170, 150,   0, 200,   0,  40 },
-	{ DM_CLAP,    0,   0, 100,   0, 130,   0, 200,   0,  60 },
-	{ DM_CHAT,    0,   0,  40,   0, 200,   0, 150,   0,   0 },
-	{ DM_OHAT,    0,   0, 120,   0, 200,   0, 140,   0,  20 },
-	{ DM_TOM,   -40,  90, 120,  30, 100,   0, 210,   0,  30 },
-	{ DM_TOM,    40,  90, 110,  30, 100,   0, 200,   0,  30 },
-	{ DM_PERC,    0,   0,  70,   0, 128,  20, 150,  60,   0 },
+	{ DM_KICK,       0, 150, 100,  70, 110,  40, 230,   0,   0, DRUM_FILTER_OFF, 0 },
+	{ DM_SNARE,      0,  40,  90, 170, 150,   0, 200,   0,  40, DRUM_FILTER_OFF, 0 },
+	{ DM_CLAP,       0,   0, 100,   0, 130,   0, 200,   0,  60, DRUM_FILTER_OFF, 0 },
+	{ DM_CHAT,       0,   0,  50,  40, 140,   0, 170,   0,   0, DRUM_FILTER_OFF, 0 },
+	{ DM_OHAT,       0,   0, 110,  40, 140,   0, 150,   0,  20, DRUM_FILTER_OFF, 0 },
+	{ DM_TOM,      -40,  90, 120,  30,  60,   0, 210,   0,  30, DRUM_FILTER_OFF, 0 },
+	{ DM_RIM,        0,  20,  80, 120, 100,   0, 170,   0,  40, DRUM_FILTER_OFF, 0 },
+	{ DM_FM,         0,  30, 120, 110, 180,   0, 160,  70,  50, DRUM_FILTER_OFF, 0 },
 };
 
 // ---------------------------------------------------------------------------
@@ -166,8 +165,15 @@ static void default_pattern(void) {
 // copy a slot from flash into RAM (only when no flash write is in progress)
 static void load_slot(int slot) {
 	const GroovePattern* src = (const GroovePattern*)GetSavedGroovePattern(slot);
-	if (src && src->magic == GROOVE_MAGIC && src->version == GROOVE_VERSION) {
+	if (src && src->magic == GROOVE_MAGIC && (src->version == 1 || src->version == GROOVE_VERSION)) {
 		memcpy(&pat, src, sizeof(pat));
+		if (pat.version == 1) { // v1 -> v2: the filter bytes were reserved (0)
+			for (int l = 0; l < GROOVE_LANES; ++l) {
+				pat.lane[l].snd.filter = DRUM_FILTER_OFF;
+				pat.lane[l].snd.reso = 0;
+			}
+			pat.version = GROOVE_VERSION;
+		}
 		for (int l = 0; l < GROOVE_LANES; ++l) { // never trust flash blindly
 			GrooveLane* ln = &pat.lane[l];
 			ln->start &= GROOVE_STEPS - 1;
@@ -309,19 +315,28 @@ void groove_touch(int fi, int* pressure, int position) {
 // ---------------------------------------------------------------------------
 // Drum lane sound and drum volume (printed / unprinted param pads)
 
+static int model_pos(int model) {
+	for (int i = 0; i < DM_LAST; ++i)
+		if (drum_model_order[i] == model)
+			return i;
+	return 0;
+}
+
 int groove_get_field(int field) {
 	DrumParams* d = &pat.lane[lane_sel].snd;
 	switch (field) {
-	case GF_MODEL:  return ((d->model * 2 + 1) * 1024) / (DM_LAST * 2);
+	case GF_MODEL:  return ((model_pos(d->model) * 2 + 1) * 1024) / (DM_LAST * 2);
 	case GF_TUNE:   return d->tune * 8;
 	case GF_SWEEP:  return d->sweep * 4;
 	case GF_DECAY:  return d->decay * 4;
 	case GF_SNAP:   return d->snap * 4;
-	case GF_TONE:   return d->tone * 4;
+	case GF_COLOR:  return d->tone * 8 - 1024; // on a signed pad (osc interval)
 	case GF_DRIVE:  return d->drive * 4;
 	case GF_LEVEL:  return d->level * 4;
 	case GF_DLSEND: return d->dlsend * 4;
 	case GF_RVSEND: return d->rvsend * 4;
+	case GF_FILTER: return d->filter * 4;
+	case GF_RESO:   return d->reso * 4;
 	case GF_VOLUME: return pat.volume * 4;
 	}
 	return 0;
@@ -332,31 +347,76 @@ void groove_set_field(int field, int value) {
 	u8 v8 = clampi(value / 4, 0, 255);
 	switch (field) {
 	case GF_MODEL: {
-		int m = d->model;
+		int pos = model_pos(d->model);
 		int delta = value - groove_get_field(GF_MODEL);
 		if (millis() - lastencodertime < 50 && delta != 0 && abs(delta) <= 64)
-			m += (delta > 0) ? 1 : -1; // encoder: one model per detent
+			pos += (delta > 0) ? 1 : -1; // encoder: one model per detent
 		else
-			m = (maxi(value, 0) * DM_LAST) / 1024; // slider: absolute
-		m = clampi(m, 0, DM_LAST - 1);
-		if (m == d->model)
+			pos = (maxi(value, 0) * DM_LAST) / 1024; // slider: absolute
+		pos = clampi(pos, 0, DM_LAST - 1);
+		if (drum_model_order[pos] == d->model)
 			return;
 		gate[lane_sel] = 0;
-		d->model = m;
+		d->model = drum_model_order[pos];
 		break; }
 	case GF_TUNE:   d->tune = clampi(value / 8, -128, 127); break;
 	case GF_SWEEP:  d->sweep = v8; break;
 	case GF_DECAY:  d->decay = v8; break;
 	case GF_SNAP:   d->snap = v8; break;
-	case GF_TONE:   d->tone = v8; break;
+	case GF_COLOR:  d->tone = clampi((value + 1024) / 8, 0, 255); break;
 	case GF_DRIVE:  d->drive = v8; break;
 	case GF_LEVEL:  d->level = v8; break;
 	case GF_DLSEND: d->dlsend = v8; break;
 	case GF_RVSEND: d->rvsend = v8; break;
+	case GF_FILTER: d->filter = v8; break;
+	case GF_RESO:   d->reso = v8; break;
 	case GF_VOLUME: pat.volume = v8; break;
 	default: return;
 	}
 	mark_dirty();
+}
+
+static const char* const field_names[] = {
+	[GF_MODEL] = "Drum Type", [GF_TUNE] = "Tune", [GF_SWEEP] = "Pitch Sweep", [GF_DECAY] = "Decay",
+	[GF_SNAP] = "Snap", [GF_COLOR] = "Colour", [GF_DRIVE] = "Drive", [GF_LEVEL] = "Level",
+	[GF_DLSEND] = "Delay Send", [GF_RVSEND] = "Reverb Send", [GF_FILTER] = "Filter", [GF_RESO] = "Resonance",
+	[GF_VOLUME] = "Drum Vol",
+};
+
+const char* groove_field_name(int field) {
+	return (field >= 0 && field <= GF_VOLUME) ? field_names[field] : "";
+}
+
+const char* groove_lane_label(void) {
+	static char label[] = "Drum 1";
+	label[5] = '1' + lane_sel;
+	return label;
+}
+
+// value text for the OLED (buf has room for 32 chars)
+const char* groove_field_str(int field, char* buf) {
+	DrumParams* d = &pat.lane[lane_sel].snd;
+	int v;
+	switch (field) {
+	case GF_MODEL:
+		return drum_model_names[d->model];
+	case GF_TUNE: { // semitones, one decimal
+		int st10 = (d->tune * 120) / 128;
+		sprintf(buf, "%c%d.%d", st10 < 0 ? '-' : '+', abs(st10) / 10, abs(st10) % 10);
+		return buf; }
+	case GF_FILTER:
+		if (d->filter > DRUM_FILTER_OFF - 5 && d->filter < DRUM_FILTER_OFF + 5)
+			return "Off";
+		if (d->filter < DRUM_FILTER_OFF)
+			sprintf(buf, "LP %d", (d->filter * 100) / 128);
+		else
+			sprintf(buf, "HP %d", ((d->filter - DRUM_FILTER_OFF) * 100) / 127);
+		return buf;
+	case GF_COLOR: v = d->tone; break;
+	default: v = groove_get_field(field) / 4; break;
+	}
+	sprintf(buf, "%d", (v * 100 + 127) / 255);
+	return buf;
 }
 
 const char* groove_model_name(void) {
@@ -532,6 +592,55 @@ void groove_finger(int fi, int* pressure, int* position) {
 		*pressure = hit_vel[fi] * 292; // velocity 7 = full pressure (2048)
 		*position = 32;                // top row = start of the slice
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Plinky voice limit in Groove mode: at most 4 Plinky voices sound at once.
+// A new note takes over the oldest one (released notes first); the stolen
+// voice fades out in ~20 ms (see the hook in UpdateEnvelope) and stays silent
+// until its string is played again.
+
+#define PLINKY_VOICES_MAX 4
+#define VOICE_SILENT 1e-4f
+
+u8 groove_voice_kill;
+static u32 voice_age[8], voice_clock;
+
+u8 groove_voice_alloc(u8 down, u8 trig, const float* vol0, int stride) {
+	u8 kill = groove_voice_kill;
+	u8 sounding = 0;
+	for (int i = 0; i < 8; ++i) {
+		u8 bit = 1 << i;
+		float vol = *(const float*)((const char*)vol0 + i * stride);
+		if (trig & bit) {
+			voice_age[i] = ++voice_clock;
+			kill &= ~bit;
+		}
+		else if (!(down & bit) && vol < VOICE_SILENT)
+			kill &= ~bit; // faded out and released: free again
+		if (!(kill & bit) && ((trig & bit) || vol > VOICE_SILENT))
+			sounding |= bit;
+	}
+	while (__builtin_popcount(sounding) > PLINKY_VOICES_MAX) {
+		// steal: prefer released notes, then held ones; oldest first; never one triggered right now
+		int best = -1, best_rank = 3;
+		u32 best_age = 0;
+		for (int i = 0; i < 8; ++i) {
+			u8 bit = 1 << i;
+			if (!(sounding & bit))
+				continue;
+			int rank = (trig & bit) ? 2 : (down & bit) ? 1 : 0;
+			if (best < 0 || rank < best_rank || (rank == best_rank && voice_age[i] < best_age)) {
+				best = i;
+				best_rank = rank;
+				best_age = voice_age[i];
+			}
+		}
+		kill |= 1 << best;
+		sounding &= ~(1 << best);
+	}
+	groove_voice_kill = kill;
+	return kill;
 }
 
 void groove_audio(void) {

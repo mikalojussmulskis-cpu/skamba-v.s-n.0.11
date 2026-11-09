@@ -148,6 +148,8 @@ CFLAGS += $(VARIANT_DEFS)
 # Groove code is not time critical except for small hooks: optimise it for size.
 ifeq ($(BUILD_TYPE), RELEASE)
 $(BUILD_DIR)/Core/Src/groove.o: CFLAGS := $(filter-out -O3,$(CFLAGS)) -Os
+# drums.c: -Os overall, its per-sample render passes are marked optimize("O2")
+$(BUILD_DIR)/Core/Src/drums.o: CFLAGS := $(filter-out -O3,$(CFLAGS)) -Os
 endif
 
 # Print build type

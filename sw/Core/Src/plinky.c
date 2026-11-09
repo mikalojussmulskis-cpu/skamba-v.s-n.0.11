@@ -631,6 +631,9 @@ float UpdateEnvelope(Voice *v, int fingeridx, float targetvol) {
 		targetvol=1.f;
 		v->decaying = 1;
 	}
+#if GROOVE_ENABLE
+	if (GROOVE_IS_ON && (groove_voice_kill & bit)) targetvol = vol * 0.5f; // GROOVE HOOK: stolen voice fades out (~20 ms)
+#endif
 	return targetvol;
 }
 
@@ -2027,6 +2030,10 @@ void DoAudio(u32 *dst, u32 *audioin) {
 	if (cvquant) {
 		cvpitch = (cvpitch + 256) & (~511);
 	}
+#if GROOVE_ENABLE
+	if (GROOVE_IS_ON) // GROOVE HOOK: at most 4 Plinky voices in Groove mode
+		groove_voice_alloc(synthfingerdown, synthfingertrigger | (arpretrig ? arpbits : 0), &voices[0].vol, sizeof(Voice));
+#endif
 	for (int fi = 0; fi < 8; ++fi) {
 		u8 bit = 1 << fi;
 		Finger* synthf = touch_synth_getlatest(fi);
@@ -2097,7 +2104,8 @@ void DoAudio(u32 *dst, u32 *audioin) {
 			//if (fi<6)
 #if GROOVE_ENABLE
 			// GROOVE HOOK: in Groove mode, skip voices that are silent and not being triggered
-			if (!(GROOVE_IS_ON && vol <= 0.f && voices[fi].vol < 0.0001f && !(synthfingertrigger & bit)))
+			// (also skips voices stolen by the 4-voice limit once they have faded out)
+			if (!(GROOVE_IS_ON && voices[fi].vol < 0.0001f && ((vol <= 0.f && !(synthfingertrigger & bit)) || (groove_voice_kill & bit))))
 #endif
 				RunVoice(&voices[fi], fi, vol, dst);
 			if (vol > 0.001f) {

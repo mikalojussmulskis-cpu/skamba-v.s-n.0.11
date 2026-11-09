@@ -555,3 +555,61 @@ Estimated free stack is now about 1.35 KB (measured 2,784 B minus the added RAM)
 | Phase 4 `GROOVE_STATS=1` | 413,716 | 8,172 | 29,448 |
 
 Estimated free stack is now about 1.08 KB (1,448 measured minus 364 added). Verify with the stats build before adding more RAM.
+
+**Phase 4 hardware feedback**:
+- Drums can be 2× louder (done in `6d7a75a`).
+- Live recording, sends and velocity rows work. Saving works; Groove itself isn't remembered across power-off, which is intended and accepted.
+- Stats:
+
+  | Situation | Average | Peak | Free stack |
+  |---|---|---|---|
+  | Drums only | 57 % | 66 % | 1,080 B |
+  | Drums + 3 Plinky notes | 70 % | 80 % | 1,080 B |
+  | Drums + all 8 Plinky voices | 92 % | **101 %** (overrun) | 1,080 B |
+
+### Phase 5: voice limits, new drum engine with resonant filter (done)
+- **Plinky limited to 4 sounding voices in Groove mode** (`groove_voice_alloc`, called from `DoAudio`):
+  - A new note steals the oldest: released notes first, then held ones, never one triggered in the same block. Arp retriggers count as triggers.
+  - A stolen voice fades out in ~20 ms (hook in `UpdateEnvelope`), is skipped once silent, and stays silent until its string is played again.
+- **Drums limited to 6 voices**:
+  - A lane retriggers its own voice. Otherwise a free voice is used, otherwise the quietest non-kick voice is stolen. Kicks are never stolen.
+- **New engine** (original code, MIT):
+  - Tone: sine, two sines or 2-op FM, with two pitch envelopes.
+  - Excitation: noise or a bank of square oscillators ("metal"), through a one-pole HP and a 2-pole SVF (branch-free LP/BP/HP mix).
+  - A **resonant SVF per lane**: low-pass / off / high-pass with resonance, read live every block (sweepable while playing). Level, sends and drive are also live.
+  - Rendering uses branch-free passes over 32-sample sub-blocks. The Cortex-M4 has no branch predictor, and the sub-blocks keep the ISR stack small.
+  - `drums.c` is compiled `-Os`; its hot passes are `optimize("O2")`.
+- **Models** (stored numbers are stable, new ones appended):
+  - Kick, Kick2 (punch: fast snap + body sweep + saturation), Snare (two head modes + band-passed wires)
+  - Clap (4 bursts, band-pass), C.Hat / O.Hat (6-square metal + noise, steep HP, choke), Cymbal
+  - Tom (with fifth overtone), Rim (rimshot↔clave), Cowbell (2 squares, band-pass), FM (8 ratios), Zap
+  - Sample (Plinky voice)
+- **Lane sound in the drum grid**:
+
+  | Pad | Lane setting |
+  |---|---|
+  | Shape | type |
+  | Pitch | tune |
+  | Glide | sweep |
+  | Decay | decay |
+  | Noise | snap |
+  | Osc interval | colour |
+  | Distortion | drive |
+  | Sensitivity | level |
+  | Delay / reverb send | sends |
+  | **HPF** | **filter** (LP ← off → HP) |
+  | **Resonance** | **filter resonance** (was "tone") |
+
+  The OLED shows drum names ("Pitch Sweep", "Filter LP 40", …) and "Drum N" as the page.
+- **Pattern format v2**: the lane's 2 reserved bytes became filter and reso. v1 patterns are migrated on load (filter off).
+- **Default kit**: Kick, Snare, Clap, C.Hat, O.Hat, Tom, Rim, FM bell.
+- **Mac sound lab** (scratchpad): every model rendered and measured for peak/RMS, length, spectral centroid, pitch trajectory and DC. Levels balanced (kick −12 dBFS peak, hats ≈ −17, …). An extreme-settings sweep shows no instability. Demo beats rendered.
+- `GROOVE=0 FACTORY_TEST_JIG=1` is still byte-identical to v0.B4.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Baseline v0.B4 | 408,540 | 13,348 | 27,624 |
+| Phase 5 default | 416,780 | **5,108** | 29,804 (+2,180 vs baseline) |
+| Phase 5 `GROOVE_STATS=1` | 417,428 | 4,460 | 29,836 |
+
+Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `drums_render` frame). Must be verified with the stats build. If it's under 400 B, shrink `DrumVoice` or move the render buffer.
