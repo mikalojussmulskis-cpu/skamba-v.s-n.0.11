@@ -61,6 +61,7 @@ SRCS = \
 	../Core/Src/lis2dh12_reg.c \
 	../Core/Src/plinky.c \
 	../Core/Src/groove.c \
+	../Core/Src/drums.c \
 	../Core/Src/stm32l4xx_hal_msp.c \
 	../Core/Src/stm32l4xx_it.c \
 	../Core/Src/syscalls.c \

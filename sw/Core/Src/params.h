@@ -127,6 +127,7 @@ const char * const paramnames[P_LAST]={
 
 #if GROOVE_ENABLE
 	[P_ENV1_UNUSED] = I_SEQ "Groove", // GROOVE HOOK
+	[P_ENV2_UNUSED] = I_SEQ "Groove Pads", // GROOVE HOOK
 #endif
 	[P_ARPONOFF] = I_NOTES "Arp On/Off",
 	[P_LATCHONOFF] = "Latch On/Off",
@@ -808,15 +809,41 @@ void SetPattern(u8 pattern, bool force) {
 }*/
 
 
+#if GROOVE_ENABLE
+// GROOVE HOOK: in the drum grid these printed pads edit the selected drum lane
+// instead of the preset (shape = drum model, pitch = tune, glide = pitch sweep,
+// decay, noise = snap, resonance = tone, distortion = drive, sensitivity = level)
+static int groove_field_for_param(int p) {
+	if (!GROOVE_GRID) return -1;
+	switch (p) {
+	case P_PWM: return GF_MODEL;
+	case P_PITCH: return GF_TUNE;
+	case P_GLIDE: return GF_SWEEP;
+	case P_D: return GF_DECAY;
+	case P_NOISE: return GF_SNAP;
+	case P_MIXRESO: return GF_TONE;
+	case P_DRIVE: return GF_DRIVE;
+	case P_SENS: return GF_LEVEL;
+	}
+	return -1;
+}
+#endif
+
 int GetParam(u8 paramidx, u8 mod) {
 	if (paramidx == P_HEADPHONE)
 		return mod ? 0 : GetHeadphoneAsParam();
+#if GROOVE_ENABLE
+	if (mod == M_BASE && groove_field_for_param(paramidx) >= 0) return groove_get_field(groove_field_for_param(paramidx)); // GROOVE HOOK
+#endif
 	return rampreset.params[paramidx][mod];
 }
 
 void EditParamNoQuant(u8 paramidx, u8 mod, s16 data) {
 	if (paramidx >= P_LAST || mod >= M_LAST)
 		return;
+#if GROOVE_ENABLE
+	if (mod == M_BASE && groove_field_for_param(paramidx) >= 0) { groove_set_field(groove_field_for_param(paramidx), data); return; } // GROOVE HOOK
+#endif
 	if (paramidx == P_HEADPHONE) {
 		if (mod == M_BASE) {
 			data = clampi(-45, ((data + (FULL/128)) / (FULL / 64)) - 45, 18);

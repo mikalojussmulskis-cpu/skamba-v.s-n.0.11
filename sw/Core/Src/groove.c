@@ -12,15 +12,18 @@
 #include "main.h"
 #endif
 #include <string.h>
+#include <stdlib.h>
 #include "core.h"
 #include "gfx.h"
 #include "groove.h"
 
 #if GROOVE_ENABLE
 
+#include "drums.h"
+
 // ---------------------------------------------------------------------------
-// Pattern data (format v1, see GROOVEBOX_PLAN.md section 5). Phase 2 keeps the
-// pattern in RAM only; p-locks are appended to this struct in a later phase.
+// Pattern data (format v1, see GROOVEBOX_PLAN.md section 5). The pattern is in
+// RAM only for now; p-locks are appended to this struct in a later phase.
 
 #define GROOVE_MAGIC 0x31565247u // "GRV1"
 #define GROOVE_VERSION 1
@@ -39,10 +42,9 @@ typedef struct GrooveLane { // 16 bytes
 	u8 length; // 1..64
 	u8 start;  // 0..63
 	u8 flags;  // LANE_MUTE
-	u8 level;
-	u8 nsound;
-	u8 rsv[3];
-	struct { u8 param; s8 val; } sound[4];
+	u8 rsv0;
+	DrumParams snd; // 8 bytes: model, tune, sweep, decay, snap, tone, drive, level
+	u8 rsv[4];
 } GrooveLane;
 
 typedef struct GroovePattern { // 656 bytes
@@ -52,19 +54,33 @@ typedef struct GroovePattern { // 656 bytes
 	GrooveLane lane[GROOVE_LANES];
 	u8 step[GROOVE_LANES][GROOVE_STEPS];
 } GroovePattern;
+_Static_assert(sizeof(DrumParams) == 8, "drum params layout");
 _Static_assert(sizeof(GrooveLane) == 16, "lane layout");
 _Static_assert(sizeof(GroovePattern) == 656, "pattern layout");
 
+// default kit:                   model     tune sweep decay snap tone drive level
+static const DrumParams default_kit[GROOVE_LANES] = {
+	{ DM_KICK,    0, 150, 120,  70, 128,  40, 230 },
+	{ DM_SNARE,   0,  40,  90, 170, 150,   0, 200 },
+	{ DM_CLAP,    0,   0, 100,   0, 130,   0, 200 },
+	{ DM_CHAT,    0,   0,  40,   0, 200,   0, 150 },
+	{ DM_OHAT,    0,   0, 120,   0, 200,   0, 140 },
+	{ DM_TOM,   -40,  90, 120,  30, 100,   0, 210 },
+	{ DM_TOM,    40,  90, 110,  30, 100,   0, 200 },
+	{ DM_PERC,    0,   0,  70,   0, 128,  20, 150 },
+};
+
 // ---------------------------------------------------------------------------
-// Pad layout in the Groove main view
+// Pad layout in the drum grid
 #define ROW_MUTE 5  // R6: mute row
 #define ROW_STEPS 6 // R7, R8: 16 steps of the selected lane
 #define LONGPRESS_MS 400
+#define NO_TOUCH (-2048) // TOUCH_MIN_PRES
 
 // ---------------------------------------------------------------------------
 // From plinky.c (unity build globals)
 extern u8 led_ram[9][8];
-extern u8 cur_sample1;
+extern int lastencodertime;
 void clearlatch(void);
 void ShowMessage(EFont fnt, const char* msg, const char* submsg);
 void halfrectangle(int x1, int y1, int x2, int y2);
@@ -72,19 +88,22 @@ void halfrectangle(int x1, int y1, int x2, int y2);
 // ---------------------------------------------------------------------------
 // State
 volatile unsigned char groove_active = 0;
+volatile unsigned char groove_grid = 0;
 
 static GroovePattern pat;
 
 static u8 lane_pos[GROOVE_LANES]; // current step per lane
-static u8 gate[GROOVE_LANES];     // ticks left of the current sequenced hit
-static u8 hit_vel[GROOVE_LANES];  // velocity 1..7 of the current hit
+static u8 gate[GROOVE_LANES];     // ticks left of a "Sample" lane hit
+static u8 hit_vel[GROOVE_LANES];  // velocity 1..7 of that hit
 static u8 flash[GROOVE_LANES];    // LED/OLED activity, decays
 static u8 lane_sel;               // lane being edited
 static u8 page;                   // 16-step page shown on R7/R8
 static u8 running;                // transport was running last tick
 static u8 gate_len = 8;
 static u8 tickdiv;
-static u8 live_down;              // bitmask: string touched last update
+static u8 live_down;              // bitmask: drum pad touched last update
+static u8 live_pending;           // bitmask: touch started, waiting one update for its velocity
+static s16 live_pressure[GROOVE_LANES];
 
 static u8 pad_row[8] = { 255, 255, 255, 255, 255, 255, 255, 255 };
 static u32 pad_time[8];
@@ -94,13 +113,16 @@ static const char* const lane_names[GROOVE_LANES] = {
 	"lane 1", "lane 2", "lane 3", "lane 4", "lane 5", "lane 6", "lane 7", "lane 8",
 };
 
-static void clear_hits(void) {
+static void stop_sound(void) {
 	memset(gate, 0, sizeof(gate));
+	live_pending = 0;
 	running = 0;
+	drums_stop_all();
 }
 
 void groove_init(void) {
 	groove_active = 0; // always boot into normal Plinky
+	groove_grid = 0;
 	memset(&pat, 0, sizeof(pat));
 	pat.magic = GROOVE_MAGIC;
 	pat.version = GROOVE_VERSION;
@@ -109,17 +131,27 @@ void groove_init(void) {
 	pat.swing_override = 255;
 	for (int l = 0; l < GROOVE_LANES; ++l) {
 		pat.lane[l].length = GROOVE_PAGE;
-		pat.lane[l].level = 255;
+		pat.lane[l].snd = default_kit[l];
 	}
-	clear_hits();
+	stop_sound();
 }
 
 void groove_toggle(void) {
-	clear_hits();
+	stop_sound();
 	groove_active = !groove_active;
+	groove_grid = groove_active;
 	if (groove_active)
 		clearlatch();
 	ShowMessage(F_32_BOLD, groove_active ? "groove on" : "groove off", 0);
+}
+
+void groove_view_toggle(void) {
+	if (!groove_active) {
+		groove_toggle();
+		return;
+	}
+	groove_grid = !groove_grid;
+	ShowMessage(F_24_BOLD, groove_grid ? "drum pads" : "plinky pads", 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +177,7 @@ void groove_pad(int fi, int row, int trig, int pressure) {
 		else if (pad_row[fi] == ROW_MUTE && !(pad_long & bit) && millis() - pad_time[fi] > LONGPRESS_MS) {
 			pad_long |= bit; // long press: select the lane without muting it
 			lane_sel = fi;
-			ShowMessage(F_20_BOLD, lane_names[fi], 0);
+			ShowMessage(F_20_BOLD, lane_names[fi], drum_model_names[pat.lane[fi].snd.model]);
 		}
 	}
 	else if (row >= ROW_STEPS && row < 8 && trig) {
@@ -165,6 +197,91 @@ void groove_pad_up(int fi) {
 	pad_row[fi] = 255;
 }
 
+static void live_hit(int fi, int pressure) {
+	drums_trigger(fi, &pat.lane[fi].snd, vel_from_pressure(pressure));
+}
+
+void groove_touch(int fi, int* pressure) {
+	u8 bit = 1 << fi;
+	int p = *pressure;
+	int synth = pat.lane[fi].snd.model != DM_SAMPLE;
+	if (p > 0) {
+		if (!(live_down & bit)) {
+			// new touch on a drum pad: select the lane; trigger on the next
+			// update (4 ms later) so the velocity reflects the actual hit
+			live_down |= bit;
+			lane_sel = fi;
+			flash[fi] = 255;
+			if (synth) {
+				live_pending |= bit;
+				live_pressure[fi] = p;
+			}
+		}
+		else if (live_pending & bit) {
+			live_pending &= ~bit;
+			live_hit(fi, maxi(live_pressure[fi], p));
+		}
+		if (synth)
+			*pressure = NO_TOUCH; // the Plinky voice stays free for melody
+	}
+	else {
+		live_down &= ~bit;
+		if (live_pending & bit) { // very short tap
+			live_pending &= ~bit;
+			live_hit(fi, live_pressure[fi]);
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Drum lane sound (printed param pads, drum grid view)
+
+int groove_get_field(int field) {
+	DrumParams* d = &pat.lane[lane_sel].snd;
+	switch (field) {
+	case GF_MODEL: return ((d->model * 2 + 1) * 1024) / (DM_LAST * 2);
+	case GF_TUNE:  return d->tune * 8;
+	case GF_SWEEP: return d->sweep * 4;
+	case GF_DECAY: return d->decay * 4;
+	case GF_SNAP:  return d->snap * 4;
+	case GF_TONE:  return d->tone * 4;
+	case GF_DRIVE: return d->drive * 4;
+	case GF_LEVEL: return d->level * 4;
+	}
+	return 0;
+}
+
+void groove_set_field(int field, int value) {
+	DrumParams* d = &pat.lane[lane_sel].snd;
+	u8 v8 = clampi(value / 4, 0, 255);
+	switch (field) {
+	case GF_MODEL: {
+		int m = d->model;
+		int delta = value - groove_get_field(GF_MODEL);
+		if (millis() - lastencodertime < 50 && delta != 0 && abs(delta) <= 64)
+			m += (delta > 0) ? 1 : -1; // encoder: one model per detent
+		else
+			m = (maxi(value, 0) * DM_LAST) / 1024; // slider: absolute
+		m = clampi(m, 0, DM_LAST - 1);
+		if (m != d->model) {
+			gate[lane_sel] = 0;
+			d->model = m;
+		}
+		break; }
+	case GF_TUNE:  d->tune = clampi(value / 8, -128, 127); break;
+	case GF_SWEEP: d->sweep = v8; break;
+	case GF_DECAY: d->decay = v8; break;
+	case GF_SNAP:  d->snap = v8; break;
+	case GF_TONE:  d->tone = v8; break;
+	case GF_DRIVE: d->drive = v8; break;
+	case GF_LEVEL: d->level = v8; break;
+	}
+}
+
+const char* groove_model_name(void) {
+	return drum_model_names[pat.lane[lane_sel].snd.model];
+}
+
 // ---------------------------------------------------------------------------
 // Sequencer
 
@@ -173,8 +290,14 @@ static void fire(int l) {
 	if (!(s & STEP_TRIG) || (pat.lane[l].flags & LANE_MUTE))
 		return;
 	int vel = (s >> STEP_VEL_SHIFT) & STEP_VEL_MASK;
-	hit_vel[l] = vel ? vel : VEL_DEFAULT;
-	gate[l] = gate_len;
+	if (!vel)
+		vel = VEL_DEFAULT;
+	if (pat.lane[l].snd.model == DM_SAMPLE) {
+		hit_vel[l] = vel;
+		gate[l] = gate_len;
+	}
+	else
+		drums_trigger(l, &pat.lane[l].snd, vel);
 	flash[l] = 255;
 }
 
@@ -216,23 +339,14 @@ void groove_tick(int clock16, int playing, int preview, int step_ticks) {
 }
 
 void groove_finger(int fi, int* pressure, int* position) {
-	u8 bit = 1 << fi;
-	if (*pressure > 0) {
-		// live hit on a drum pad: it selects that lane for editing
-		if (!(live_down & bit)) {
-			live_down |= bit;
-			if ((*position >> 8) < ROW_MUTE) {
-				lane_sel = fi;
-				flash[fi] = 255;
-			}
-		}
-		return;
-	}
-	live_down &= ~bit;
-	if (gate[fi]) {
+	if (gate[fi] && *pressure <= 0) {
 		*pressure = hit_vel[fi] * 292; // velocity 7 = full pressure (2048)
 		*position = 32;                // top row = start of the slice
 	}
+}
+
+void groove_audio(short* dst) {
+	drums_render(dst);
 }
 
 // ---------------------------------------------------------------------------
@@ -275,12 +389,8 @@ void groove_draw_leds(void) {
 
 void groove_draw_oled(void) {
 	GrooveLane* sel = &pat.lane[lane_sel];
-	drawstr(0, 0, F_16_BOLD, "Groove");
-	fdrawstr(-128, 2, F_12, "L%d %d/%d", lane_sel + 1, lane_pos[lane_sel] - sel->start + 1, sel->length);
-	if (!cur_sample1) {
-		drawstr(0, 20, F_8, "no kit: Preset + sample pad");
-		return;
-	}
+	fdrawstr(0, 0, F_16_BOLD, "%d %s", lane_sel + 1, drum_model_names[sel->snd.model]);
+	fdrawstr(-128, 2, F_12, "%d/%d", lane_pos[lane_sel] - sel->start + 1, sel->length);
 	// one activity meter per lane; dithered = muted, top line = selected
 	for (int l = 0; l < GROOVE_LANES; ++l) {
 		int x0 = l * 16 + 1, x1 = x0 + 13;

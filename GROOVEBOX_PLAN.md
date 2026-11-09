@@ -498,3 +498,27 @@ Consequences:
 | Baseline v0.B4 | 408,540 | 13,348 | 27,624 |
 | Phases 1+2 default | 406,536 | **15,352** | 28,364 (+740) |
 | Phases 1+2 `GROOVE_STATS=1` | 407,184 | 14,704 | 28,396 |
+
+### Phase 3 (re-planned): synthesised drums + melody alongside (done)
+Decision (user, after phases 1+2): drums are synthesised instead of borrowing Plinky voices, so Plinky's 8 voices stay free for melody.
+- **`drums.c` / `drums.h`**: 8 drum voices (one per lane), rendered in `DoAudio` right after the 8 Plinky voices (before HPF, compressor and FX).
+  - Models: Kick, Snare, Clap, C.Hat (chokes O.Hat), O.Hat, Tom, Perc (cowbell), and **Sample** (the old behaviour: the lane plays its slice of the preset's sample on a Plinky voice).
+  - One generic voice per lane: sine or square-pair oscillator with a pitch envelope, plus filtered noise. No libm, only sounding voices are computed.
+  - Checked on the Mac by rendering every model to WAV (levels, lengths, no NaNs).
+- **Default kit**: 1 Kick, 2 Snare, 3 Clap, 4 C.Hat, 5 O.Hat, 6 low Tom, 7 high Tom, 8 Perc.
+- **Lane sound** = 8 bytes in `GrooveLane` (model, tune, sweep, decay, snap, tone, drive, level). In the drum grid, the printed pads edit the selected lane instead of the preset:
+  - Shape = model, Pitch = tune (±1 oct), Glide = sweep, Decay = decay
+  - Noise = snap, Resonance = tone, Distortion = drive, Sensitivity = level
+- **Views**: Params 2 + blank pad R2C7 switches the pads between the drum grid and normal Plinky playing while the drums keep running.
+  - In the Plinky view, everything is normal Plinky, including the sequencer, arp, latch and recording (the melody track).
+  - The arp and normal-sequencer suppression from phases 1+2 is removed. Latch writes and pattern recording are only blocked for drum-grid touches.
+- **Live drum pads** (R1–R5): trigger one string update (4 ms) after touch-down, so velocity reflects the hit. The touch is swallowed, so the Plinky voice isn't played.
+- `GROOVE=0 FACTORY_TEST_JIG=1` is still byte-identical to v0.B4.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Baseline v0.B4 | 408,540 | 13,348 | 27,624 |
+| Phase 3 default | 410,236 | **11,652** | 29,052 (+1,428 vs baseline) |
+| Phase 3 `GROOVE_STATS=1` | 410,908 | 10,980 | 29,084 |
+
+Estimated free stack is now about 1.35 KB (measured 2,784 B minus the added RAM). Verify with the stats build.

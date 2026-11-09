@@ -424,7 +424,7 @@ void on_shift_up(int release_button) {
 		// these arent real params, so dont stick on them.
 		if (edit_param == P_ARPONOFF || edit_param == P_LATCHONOFF
 #if GROOVE_ENABLE
-			|| edit_param == P_ENV1_UNUSED // GROOVE HOOK: the Groove toggle pad isn't a real param either
+			|| edit_param == P_ENV1_UNUSED || edit_param == P_ENV2_UNUSED // GROOVE HOOK: the Groove toggle pads aren't real params either
 #endif
 			) {
 			edit_param = P_LAST;
@@ -530,7 +530,6 @@ bool read_from_seq = false;
 FingerRecord* readpattern(int fi) {
 	if (rampattern_idx != cur_pattern || shift_down == SB_CLEAR)
 		return 0;
-	if (GROOVE_IS_ON) return 0; // GROOVE HOOK: normal sequencer is silent in Groove mode
 	FingerRecord* fr = &rampattern[(cur_step >> 4) & 3].steps[cur_step & 15][fi];
     // does any substep hold data?
 	int record_pressure = 0;
@@ -726,7 +725,6 @@ void finger_synth_update(int fi) {
 	int previous_pressure = fingers_ui_time[fi][(ui_frame - 2) & 7].pressure;
 	int substep = calcseqsubstep(0, 8);
 	bool latchon = (rampreset.flags & FLAGS_LATCH);
-	if (GROOVE_IS_ON) latchon = false; // GROOVE HOOK: no latch in Groove mode
   	int pressure = TOUCH_MIN_PRES;
 	int position = 0;
 #if defined(DEBUG) || GROOVE_ENABLE
@@ -752,7 +750,7 @@ void finger_synth_update(int fi) {
         // === LATCH WRITE === // 
 
         // finger touching and pressure increasing
-        if (latchon && pressure > 0 && pressure_increasing) {
+        if (latchon && pressure > 0 && pressure_increasing && !GROOVE_GRID) { // GROOVE HOOK: drum taps don't latch
             // is this a new touch after no fingers where touching?
             if (previous_pressure <= 0 && physical_touch_finger == bit) {
                 // start a new latch, clear all previous latch values
@@ -793,6 +791,10 @@ void finger_synth_update(int fi) {
         }
     }
 
+#if GROOVE_ENABLE
+	if (GROOVE_GRID) groove_touch(fi, &pressure); // GROOVE HOOK: live drum hits
+#endif
+
     // === LATCH RECALL === // 
 
     // latch pressure larger than touch pressure
@@ -822,7 +824,7 @@ void finger_synth_update(int fi) {
     FingerRecord* seq_record = &rampattern[quarter].steps[cur_step & 15][fi];
     int data_saved = false;	
     // We're recording into the loaded pattern
-    if (recording && rampattern_idx == cur_pattern && !GROOVE_IS_ON) { // GROOVE HOOK: don't record into the normal pattern
+    if (recording && rampattern_idx == cur_pattern && !GROOVE_GRID) { // GROOVE HOOK: drum taps aren't recorded into the normal pattern
         // holding clear sets the pressure to zero, which will effectively clear the sequencer at this point
         int seq_pressure = shift_down == SB_CLEAR ? 0 : pres_compress(pressure);
         int seq_position = shift_down == SB_CLEAR ? 0 : pos_compress(position);

@@ -591,6 +591,9 @@ void DrawFlags()
 
 const char *getparamstr(int p, int mod, int v, char *valbuf, char *decbuf) {
 	if (decbuf) *decbuf = 0;
+#if GROOVE_ENABLE
+	if (mod == M_BASE && p == P_PWM && GROOVE_GRID) return groove_model_name(); // GROOVE HOOK
+#endif
 	int valmax = param_flags[p] & FLAG_MASK;
 	int vscale = valmax ? (mini(v, FULL - 1) * valmax) / FULL : v;
 	int displaymax = valmax ? valmax * 10 : 1000;
@@ -610,6 +613,8 @@ const char *getparamstr(int p, int mod, int v, char *valbuf, char *decbuf) {
 #if GROOVE_ENABLE
 	case P_ENV1_UNUSED: // GROOVE HOOK
 		return groove_active ? "On" : "Off";
+	case P_ENV2_UNUSED: // GROOVE HOOK
+		return groove_grid ? "Drums" : "Plinky";
 #endif
 	case P_SAMPLE:
 		if (vscale == 0) {
@@ -806,7 +811,7 @@ void editmode_ui(void) {
 	}*/
 	else switch (editmode) {
 	case EM_PLAY:
-		if (GROOVE_IS_ON && !(lastencodertime && lastencodertime > millis() - 2000)) { groove_draw_oled(); break; } // GROOVE HOOK
+		if (GROOVE_GRID && !(lastencodertime && lastencodertime > millis() - 2000)) { groove_draw_oled(); break; } // GROOVE HOOK
 		if (ramsample.samplelen) {
 			DrawSamplePlayback(&ramsample);
 		}
@@ -895,7 +900,11 @@ void editmode_ui(void) {
 			int w = 0;
 			int v =  GetParam(pi, ui_edit_mod);
 			int vbase = v;
-			if (ui_edit_mod == 0) {
+			if (ui_edit_mod == 0
+#if GROOVE_ENABLE
+				&& groove_field_for_param(pi) < 0 // GROOVE HOOK: drum lane values aren't modulated
+#endif
+				) {
 				v = (param_eval_int_noscale(pi, any_rnd, env16, pressure16) * FULL) >> 16;
 				if (v != vbase) {
 					// if there is modulation going on, show the base value below
@@ -1091,6 +1100,8 @@ void editmode_ui(void) {
 #if GROOVE_ENABLE
 				else if (pAorB == P_ENV1_UNUSED)
 					k = groove_active ? 255 : 0; // GROOVE HOOK
+				else if (pAorB == P_ENV2_UNUSED)
+					k = groove_grid ? 255 : 0; // GROOVE HOOK
 #endif
 #else
 				if (y == 0) {
@@ -1168,7 +1179,7 @@ void editmode_ui(void) {
 			led_ram[fi][y] = led_gamma(k);
 		}
 	}
-	if (GROOVE_IS_ON && editmode == EM_PLAY) groove_draw_leds(); // GROOVE HOOK
+	if (GROOVE_GRID && editmode == EM_PLAY) groove_draw_leds(); // GROOVE HOOK
 	{
 		led_ram[8][SB_PLAY] = playing ? led_gamma(clockglow) : 0;
 		led_ram[8][SB_PREV] = (editmode == EM_START) ? 255 : 0;
