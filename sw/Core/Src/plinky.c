@@ -67,6 +67,7 @@ extern UART_HandleTypeDef huart3;
 #include "audiointrin.h"
 #include "lfo.h"
 #include "enums.h"
+#include "groove.h" // GROOVE HOOK
 
 
 const static float table_interp(const float *table, int x) { // 16 bit unsigned input, looked up in a 1024 entry table and linearly interpolated
@@ -2578,6 +2579,7 @@ void reflash(void) {
 	jumptobootloader();
 }
 
+#ifdef FACTORY_TEST_JIG // factory test jig code: excluded from normal builds to free flash for Groove mode
 void set_test_mux(int c) {
 #ifndef EMU
 	GPIOD->ODR &= ~(GPIO_PIN_1 | GPIO_PIN_3 | GPIO_PIN_4); // rgb led off
@@ -2596,6 +2598,7 @@ void set_test_mux(int c) {
 void set_test_rgb(int c) {
 	set_test_mux(c^7);
 }
+#endif // FACTORY_TEST_JIG
 
 short *getrxbuf(void);
 
@@ -2718,6 +2721,7 @@ void check_bootloader_flash(void) {
 }
 
 
+#ifdef FACTORY_TEST_JIG
 #undef ERROR
 #define ERROR(msg, ...) do { errorcount++; DebugLog("\r\n" msg "\r\n", __VA_ARGS__);  } while (0)
 
@@ -2965,6 +2969,7 @@ void test_jig(void) {
 		HAL_Delay(errorcount ? 2000 : 4000);
 	}
 }
+#endif // FACTORY_TEST_JIG
 
 void plinky_frame(void);
 
@@ -3228,6 +3233,9 @@ extern bool g_i_am_a_plinky_plus;
 bool g_i_am_a_plinky_plus = false; // assume original Plinky with 1306 display
 
 void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
+#ifdef GROOVE_STATS
+	groove_stats_init(); // GROOVE HOOK (measurement build only)
+#endif
 	denormals_init();
 	touch_reset_calib();
 	tc_init();
@@ -3268,9 +3276,11 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 
  	// see if were in the testjig - it pulls PA8 (pin 67) down 'DEBUG'
 #ifndef EMU
+#ifdef FACTORY_TEST_JIG
 	if (!(GPIOA->IDR & (1<<8))) {
 		test_jig();
 	}
+#endif
 
 	// turn debug pin to an output
 	  GPIO_InitTypeDef GPIO_InitStruct = { 0 };
@@ -3362,6 +3372,7 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 	}
 #endif
 	InitParamsOnBoot();
+	GROOVE_HOOK(groove_init()); // GROOVE HOOK
 
 
 	

@@ -723,7 +723,11 @@ void finger_synth_update(int fi) {
 	bool latchon = (rampreset.flags & FLAGS_LATCH);
   	int pressure = TOUCH_MIN_PRES;
 	int position = 0;
+#ifdef DEBUG
+	bool pressure_increasing = false; // silences an -Og false positive; release code generation unchanged
+#else
 	bool pressure_increasing;
+#endif
 	bool position_updated = false;
 
 	// === TOUCH INPUT === //

@@ -4,6 +4,10 @@
 # you can also set this from the commandline like
 # make TOOLCHAIN_LOCATION=/path/to/toolchain
 TOOLCHAIN_LOCATION ?= /Applications/STM32CubeIDE.app/Contents/Eclipse/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.12.3.rel1.macos64_1.0.200.202406191456/tools/bin/
+# fall back to the arm-none-eabi-gcc in PATH if the toolchain above isn't installed
+ifeq ($(wildcard $(TOOLCHAIN_LOCATION)arm-none-eabi-gcc),)
+override TOOLCHAIN_LOCATION :=
+endif
 
 # set this to the location of the stm32 cube programmer cli app,
 # and then the 'program' pseudo target will flash your plinky
@@ -21,7 +25,27 @@ SIZE = $(TOOLCHAIN_LOCATION)arm-none-eabi-size
 # Set default build type if not specified
 BUILD_TYPE ?= RELEASE
 
-BUILD_DIR := $(BUILD_TYPE)
+# Groovebox build variants (each gets its own build folder):
+#   make GROOVE_STATS=1      measurement build: CPU / stack / clock overlay on the OLED
+#   make GROOVE=0            compile out all Groove hooks
+#   make FACTORY_TEST_JIG=1  include the factory test jig code
+# GROOVE=0 FACTORY_TEST_JIG=1 must produce a binary identical to upstream v0.B4.
+VARIANT_DEFS :=
+VARIANT_SUFFIX :=
+ifeq ($(GROOVE_STATS),1)
+VARIANT_DEFS += -DGROOVE_STATS
+VARIANT_SUFFIX := $(VARIANT_SUFFIX)_STATS
+endif
+ifeq ($(GROOVE),0)
+VARIANT_DEFS += -DGROOVE_ENABLE=0
+VARIANT_SUFFIX := $(VARIANT_SUFFIX)_NOGROOVE
+endif
+ifeq ($(FACTORY_TEST_JIG),1)
+VARIANT_DEFS += -DFACTORY_TEST_JIG
+VARIANT_SUFFIX := $(VARIANT_SUFFIX)_TESTJIG
+endif
+
+BUILD_DIR := $(BUILD_TYPE)$(VARIANT_SUFFIX)
 $(shell mkdir -p $(BUILD_DIR))
 
 TARGET = $(BUILD_DIR)/plinkyblack.elf
@@ -36,6 +60,7 @@ SRCS = \
 	../Core/Src/gfx.c \
 	../Core/Src/lis2dh12_reg.c \
 	../Core/Src/plinky.c \
+	../Core/Src/groove.c \
 	../Core/Src/stm32l4xx_hal_msp.c \
 	../Core/Src/stm32l4xx_it.c \
 	../Core/Src/syscalls.c \
@@ -117,8 +142,15 @@ CFLAGS = $(CFLAGS_COMMON) -Og -g3 -D_DEBUG -DDEBUG -gdwarf-2
 LDFLAGS = $(LDFLAGS_COMMON)
 endif
 
+CFLAGS += $(VARIANT_DEFS)
+
+# Groove code is not time critical except for small hooks: optimise it for size.
+ifeq ($(BUILD_TYPE), RELEASE)
+$(BUILD_DIR)/Core/Src/groove.o: CFLAGS := $(filter-out -O3,$(CFLAGS)) -Os
+endif
+
 # Print build type
-$(info Building in $(BUILD_TYPE) mode)
+$(info Building in $(BUILD_TYPE)$(VARIANT_SUFFIX) mode)
 
 INCLUDES = -I../Drivers/CMSIS/Include \
 	    -I../Core/Src/tinyusb/src \

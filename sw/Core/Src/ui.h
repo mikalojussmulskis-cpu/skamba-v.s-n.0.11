@@ -958,6 +958,9 @@ void editmode_ui(void) {
 		break;
 	}
 
+#ifdef GROOVE_STATS
+	groove_stats_draw(); // GROOVE HOOK (measurement build only)
+#endif
 	flip();
 	bool playing = playmode == PLAYING;
 	int clockglow = maxi(96, 255 - calcseqsubstep(0, 256 - 96));
