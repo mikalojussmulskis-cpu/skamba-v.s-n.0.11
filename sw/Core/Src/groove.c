@@ -206,7 +206,7 @@ void groove_toggle(void) {
 	groove_grid = groove_active;
 	if (groove_active)
 		clearlatch();
-	ShowMessage(F_32_BOLD, groove_active ? "groove on" : "groove off", 0);
+	ShowMessage(F_20_BOLD, groove_active ? "groove on" : "groove off", 0);
 }
 
 void groove_view_toggle(void) {
@@ -215,7 +215,7 @@ void groove_view_toggle(void) {
 		return;
 	}
 	groove_grid = !groove_grid;
-	ShowMessage(F_24_BOLD, groove_grid ? "drum pads" : "plinky pads", 0);
+	ShowMessage(F_20_BOLD, groove_grid ? "drum pads" : "plinky pads", 0);
 }
 
 // ---------------------------------------------------------------------------

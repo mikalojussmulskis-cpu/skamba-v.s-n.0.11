@@ -14,7 +14,7 @@
 #define SR 31250.f   // Plinky's audio sample rate (ACCURATE_FS)
 #define BLOCK 64     // samples per audio block
 #define VOICES 8
-#define OUT_GAIN 9000.f // at master volume 255 and lane level 255
+#define OUT_GAIN 18000.f // at master volume 255 and lane level 255
 #define SILENT 5e-4f     // a voice stops below this amplitude (about -66 dB)
 #define CLAP_GAP 330 // samples between clap bursts (~10.5 ms)
 
