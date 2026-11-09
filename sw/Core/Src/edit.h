@@ -49,6 +49,12 @@ void on_longpress(int rotstep) {
 		
 	}
 	else {
+#if GROOVE_ENABLE
+		if (GROOVE_GRID && rotstep >= 32 && rotstep < 32 + 24) { // GROOVE HOOK: copy the groove pattern
+			groove_preset_longpress(rotstep - 32);
+			return;
+		}
+#endif
 		copyrequest = rotstep;
 	}
 }
@@ -276,6 +282,9 @@ void finger_editing(int fi, int frame) {
 					}
 					break;
 				case 1:
+#if GROOVE_ENABLE
+					if (GROOVE_GRID) { groove_preset_pad_up(); break; } // GROOVE HOOK
+#endif
 					if (edit_pattern_pending == prev_pattern_pending || !isplaying()) {
 						if (edit_pattern_pending != 255) EditParamQuant(P_SEQPAT, M_BASE, edit_pattern_pending);
 						edit_pattern_pending = 255;
@@ -530,6 +539,9 @@ void finger_editing(int fi, int frame) {
 				edit_preset_pending = rotstep;
 				break;
 			case 1: {
+#if GROOVE_ENABLE
+				if (GROOVE_GRID) { if (trig) groove_preset_pad(rotstep - 32); break; } // GROOVE HOOK: groove pattern pads
+#endif
 				//if (trig) 
 				{
 					copyfrompattern = cur_pattern;

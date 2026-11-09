@@ -522,3 +522,36 @@ Decision (user, after phases 1+2): drums are synthesised instead of borrowing Pl
 | Phase 3 `GROOVE_STATS=1` | 410,908 | 10,980 | 29,084 |
 
 Estimated free stack is now about 1.35 KB (measured 2,784 B minus the added RAM). Verify with the stats build.
+
+**Phase 3 hardware feedback**:
+- Drums too loud and distorting the mix (they went through the synth compressor and soft clip).
+- Stats with all 8 lanes: average CPU 89 % (drums ≈ 17 %), peak 95 %, free stack 1,448–1,456 B.
+- The melody alongside the drums works.
+
+### Phase 4: drum bus, CPU, velocity rows, live record, pattern storage (done)
+- **Drum CPU**:
+  - no per-sample division (cubic soft clip);
+  - all loop state in registers;
+  - noise, tone, drive and sends are only computed when in use (decided per block);
+  - voices stop at about −66 dB.
+- **Separate drum bus** (`drum_bus_dry/dl/rv`):
+  - dry drums are added in the FX loop *after* the synth compressor;
+  - per-lane **delay send** and **reverb send** feed Plinky's delay (`delaysend`) and reverb (a 2-line hook in `Reverb2`), independent of the synth's send levels;
+  - in the drum grid, the printed delay-send and reverb-send pads edit the selected lane.
+- **Drum Volume**: master level stored per pattern, on the unprinted pad Params 2 + HPF pad (`P_SYS_UNUSED1`). Active whenever Groove is on.
+- **Velocity rows**: drum pads R1–R5 trigger immediately with velocities 100/71/57/43/29 %.
+- **Live record**: Record + Play writes hits to the nearest step. A hit in the second half of a step goes to the next step, which is then skipped once so it doesn't sound twice.
+- **CPU save**: while Groove is on, Plinky voices that are silent (pressure ≤ 0, level < 1e-4, no trigger) skip `RunVoice`. Normal mode is untouched.
+- **Storage** (approved): `LAST_IDX` is 160 when `GROOVE_ENABLE`. Groove patterns 1–24 use logical idx 136–159, one 656-byte page each, through the existing `ProgramPage`.
+  - **Autosave** from `PumpFlashWrites`: 5 s idle, at most 60 s old, or immediately when another slot is waiting.
+  - **Preset mode** (S3) in the drum grid: the 24 pattern pads select groove patterns. Changes are queued to the bar while playing and immediate when stopped. Long press = copy the current pattern there. S3 + hold S6 = clear.
+  - Slot 1 loads at boot. Patterns are only loaded in the ISR when no flash write is running and nothing is unsaved.
+- `GROOVE=0 FACTORY_TEST_JIG=1` is still byte-identical to v0.B4.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Baseline v0.B4 | 408,540 | 13,348 | 27,624 |
+| Phase 4 default | 413,076 | **8,812** | 29,416 (+1,792 vs baseline) |
+| Phase 4 `GROOVE_STATS=1` | 413,716 | 8,172 | 29,448 |
+
+Estimated free stack is now about 1.08 KB (1,448 measured minus 364 added). Verify with the stats build before adding more RAM.

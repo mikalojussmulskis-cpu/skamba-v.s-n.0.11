@@ -276,6 +276,12 @@ void on_shift_hold(int button) {
 	
 	if (editmode == EM_PRESET) {
 		if (shift_down == SB_CLEAR && shift_down_time > 64+4) {
+#if GROOVE_ENABLE
+			if (GROOVE_GRID && last_preset_selection_rotstep >= 32 && last_preset_selection_rotstep < 32 + 24) { // GROOVE HOOK: clear a groove pattern
+				if (shift_down_time == 64 + 5)
+					groove_clear_slot(last_preset_selection_rotstep - 32);
+			} else
+#endif
 			// clear it!
 			if (last_preset_selection_rotstep>=0 && last_preset_selection_rotstep<64)
 				copyrequest = last_preset_selection_rotstep + 128;
@@ -792,7 +798,7 @@ void finger_synth_update(int fi) {
     }
 
 #if GROOVE_ENABLE
-	if (GROOVE_GRID) groove_touch(fi, &pressure); // GROOVE HOOK: live drum hits
+	if (GROOVE_GRID) groove_touch(fi, &pressure, position); // GROOVE HOOK: live drum hits
 #endif
 
     // === LATCH RECALL === // 

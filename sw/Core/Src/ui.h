@@ -966,7 +966,7 @@ void editmode_ui(void) {
 			if (rampreset.category > 0 && rampreset.category < CAT_LAST) 
 				drawstr(xtab + 2, 8, F_8, kpresetcats[rampreset.category]);
 
-			fdrawstr(0, 16, F_20_BOLD, I_SEQ "Pat %d ", cur_pattern + 1);
+			fdrawstr(0, 16, F_20_BOLD, GROOVE_GRID ? I_SEQ "Groove %d " : I_SEQ "Pat %d ", (GROOVE_GRID ? groove_slot() : cur_pattern) + 1); // GROOVE HOOK
 			fdrawstr(-128, 16, F_20_BOLD, cur_sample1 ? I_WAVE "%d" : I_WAVE "Off", cur_sample1);
 		}
 		break;
@@ -1160,6 +1160,10 @@ void editmode_ui(void) {
 					k = flickeryfast;
 				if (rotstep == cur_pattern + 32)
 					k = 255;
+#if GROOVE_ENABLE
+				if (GROOVE_GRID && rotstep >= 32 && rotstep < 32 + 24)
+					k = groove_preset_led(rotstep - 32, flickeryfast); // GROOVE HOOK
+#endif
 				if (edit_sample1_pending && rotstep == (edit_sample1_pending - 1) + 32 + 24)
 					k = flickeryfast;
 				if (cur_sample1 && rotstep == (cur_sample1 - 1) + 32 + 24)

@@ -128,6 +128,7 @@ const char * const paramnames[P_LAST]={
 #if GROOVE_ENABLE
 	[P_ENV1_UNUSED] = I_SEQ "Groove", // GROOVE HOOK
 	[P_ENV2_UNUSED] = I_SEQ "Groove Pads", // GROOVE HOOK
+	[P_SYS_UNUSED1] = I_SEQ "Drum Vol", // GROOVE HOOK
 #endif
 	[P_ARPONOFF] = I_NOTES "Arp On/Off",
 	[P_LATCHONOFF] = "Latch On/Off",
@@ -436,7 +437,12 @@ int params_premod[P_LAST]; // parameters with the lfos/inputs pre-mixed in
 #define LAST_PATTERN_IDX 128 // 24 patterns x 4 quarters = 96 pages starting from page 32
 #define FIRST_SAMPLE_IDX LAST_PATTERN_IDX
 #define LAST_SAMPLE_IDX 136
+#if GROOVE_ENABLE
+#define FIRST_GROOVE_IDX LAST_SAMPLE_IDX // GROOVE HOOK: groove patterns 136..159 (approved storage extension)
+#define LAST_IDX (FIRST_GROOVE_IDX + GROOVE_SLOTS)
+#else
 #define LAST_IDX LAST_SAMPLE_IDX
+#endif
 #define OPS_IDX 0xfe
 typedef struct PageFooter {
 	u8 idx; // preset 0-31, pattern (quarters!) 32-127, sample 128-136, blank=0xff
@@ -787,6 +793,28 @@ void ProgramPage(void* datasrc, u32 datasize, u8 index) {
 }
 void clearlatch(void);
 
+#if GROOVE_ENABLE
+// GROOVE HOOK: groove pattern pages in the flash store
+const void* GetSavedGroovePattern(int slot) {
+#ifdef HALF_FLASH
+	return 0;
+#endif
+	if (slot < 0 || slot >= GROOVE_SLOTS)
+		return 0;
+	FlashPage* fp = GetFlashPagePtr(latestpagesidx[FIRST_GROOVE_IDX + slot]);
+	if (fp->footer.idx != FIRST_GROOVE_IDX + slot || fp->footer.version != 2)
+		return 0;
+	return fp;
+}
+void SaveGroovePattern(int slot, const void* data, int size) {
+	if (slot >= 0 && slot < GROOVE_SLOTS && size <= (int)sizeof(((FlashPage*)0)->raw))
+		ProgramPage((void*)data, size, FIRST_GROOVE_IDX + slot);
+}
+int GrooveFlashBusy(void) {
+	return updating_bank2;
+}
+#endif
+
 void SetPreset(u8 preset, bool force) {
 	if (preset >= 32)
 		return;
@@ -814,8 +842,11 @@ void SetPattern(u8 pattern, bool force) {
 // instead of the preset (shape = drum model, pitch = tune, glide = pitch sweep,
 // decay, noise = snap, resonance = tone, distortion = drive, sensitivity = level)
 static int groove_field_for_param(int p) {
+	if (p == P_SYS_UNUSED1 && GROOVE_IS_ON) return GF_VOLUME; // unprinted pad: drum master volume
 	if (!GROOVE_GRID) return -1;
 	switch (p) {
+	case P_DLSEND: return GF_DLSEND;
+	case P_RVSEND: return GF_RVSEND;
 	case P_PWM: return GF_MODEL;
 	case P_PITCH: return GF_TUNE;
 	case P_GLIDE: return GF_SWEEP;
@@ -1012,6 +1043,9 @@ void PumpFlashWrites(void) {
 	WritePattern(now);
 	WriteSample(now);
 	WritePreset(now);
+#if GROOVE_ENABLE
+	groove_flash_pump(); // GROOVE HOOK: groove pattern autosave
+#endif
 	
 }
 

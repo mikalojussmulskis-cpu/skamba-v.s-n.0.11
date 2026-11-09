@@ -1259,9 +1259,15 @@ s32 Reverb2(s32 input, s16 *buf) {
 	// lets try the 4 greisinger initial Aps, inject stereo after the first AP,
 	
 	int acc = ((s16)(input)) * k_reverbsend >> 17;
+#if GROOVE_ENABLE
+	acc += groove_rv_in; // GROOVE HOOK: drum reverb send (independent of the synth's send level)
+#endif
 	AP(142);
 	AP(379);
 	acc += (input >> 16) * k_reverbsend >> 17;
+#if GROOVE_ENABLE
+	acc += groove_rv_in; // GROOVE HOOK
+#endif
 	AP(107);
 //	int reinject2 = acc;
 	AP(277);
@@ -1923,7 +1929,7 @@ void DoAudio(u32 *dst, u32 *audioin) {
 	}
 	// do the clock first so we can update the sequencer step etc
 	bool gotclock = update_clock();
-	if (GROOVE_IS_ON) groove_tick(gotclock && ticks_since_clock == 0, isplaying(), playmode == PLAY_PREVIEW, last_clock_period); // GROOVE HOOK
+	if (GROOVE_IS_ON) groove_tick(gotclock && ticks_since_clock == 0, isplaying(), playmode == PLAY_PREVIEW, last_clock_period, recording); // GROOVE HOOK
 	static u8 whichhalf = 0;
 	// start of a full update of all strings
 	if (!whichhalf) {
@@ -2089,6 +2095,10 @@ void DoAudio(u32 *dst, u32 *audioin) {
 			if (fi == 0)
 #endif			
 			//if (fi<6)
+#if GROOVE_ENABLE
+			// GROOVE HOOK: in Groove mode, skip voices that are silent and not being triggered
+			if (!(GROOVE_IS_ON && vol <= 0.f && voices[fi].vol < 0.0001f && !(synthfingertrigger & bit)))
+#endif
 				RunVoice(&voices[fi], fi, vol, dst);
 			if (vol > 0.001f) {
 				if (!gotlow) {
@@ -2106,7 +2116,7 @@ void DoAudio(u32 *dst, u32 *audioin) {
 		if (synthf->pressure > maxpressure)
 			maxpressure = synthf->pressure;
 	}
-	if (GROOVE_IS_ON) groove_audio((short*)dst); // GROOVE HOOK: synthesised drums
+	if (GROOVE_IS_ON) groove_audio(); // GROOVE HOOK: render the drum bus (mixed in the FX loop below)
 	SetOutputCVPressure(maxpressure * 8);
 	SetOutputCVTrigger(trigout ? 65535 : 0);
 	if (gothi)
@@ -2372,6 +2382,9 @@ if (ENABLE_HPF) for (int i = 0; i < BLOCK_SAMPLES; ++i) {
 
 		int delaysend = (int)((delayreturnl+(delayreturnr>>1)) * k_fb);
 		delaysend += (((s16) (dry2wetlr) + (s16) (dry2wetlr >> 16)) * k_delaysend ) >> 8;
+#if GROOVE_ENABLE
+		if (GROOVE_IS_ON) delaysend += drum_bus_dl[i]; // GROOVE HOOK: drum delay send
+#endif
 		static float lpf=0.f,dc=0.f;
 		lpf+=(delaysend-lpf)*0.75f;
 		dc+=(lpf-dc)*0.05f;
@@ -2439,6 +2452,9 @@ if (ENABLE_HPF) for (int i = 0; i < BLOCK_SAMPLES; ++i) {
 		{
 			u32 reverbin=STEREOADDAVERAGE(newwetlr,dry2wetlr);
 			MONITORPEAK(&m_reverbin, reverbin);
+#if GROOVE_ENABLE
+			groove_rv_in = GROOVE_IS_ON ? drum_bus_rv[i] : 0; // GROOVE HOOK: drum reverb send
+#endif
 			u32 reverbout=Reverb2(reverbin, reverbbuf);
 			MONITORPEAK(&m_reverbout, reverbout);
 			newwetlr=STEREOADDSAT(newwetlr, reverbout);
@@ -2458,6 +2474,12 @@ if (ENABLE_HPF) for (int i = 0; i < BLOCK_SAMPLES; ++i) {
 
 		src[0] = STEREOADDSAT(STEREOADDSAT(STEREOSCALE(drylr0,drylvl), audioin0), midwetlr);
 		src[1] = STEREOADDSAT(STEREOADDSAT(STEREOSCALE(drylr1,drylvl), audioin1), newwetlr);
+#if GROOVE_ENABLE
+		if (GROOVE_IS_ON) { // GROOVE HOOK: dry drums, after the synth compressor
+			src[0] = STEREOADDSAT(src[0], STEREOPACK(drum_bus_dry[i * 2], drum_bus_dry[i * 2]));
+			src[1] = STEREOADDSAT(src[1], STEREOPACK(drum_bus_dry[i * 2 + 1], drum_bus_dry[i * 2 + 1]));
+		}
+#endif
 
 		MONITORPEAK(&m_output, src[0]);
 		MONITORPEAK(&m_output, src[1]);
