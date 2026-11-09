@@ -470,3 +470,31 @@ will include flash and RAM numbers against the baseline (408,540 B flash / 27,62
 | Baseline v0.B4 | 408,540 | 13,348 | 27,624 |
 | Phase 0 default | 403,288 (−5,252) | **18,600** | 27,624 (±0) |
 | Phase 0 `GROOVE_STATS=1` | 404,128 | 17,760 | 27,648 |
+
+**Phase 0 hardware measurements** (stats build, synth presets):
+- Core clock **112 MHz** (one block ≈ 229 k cycles).
+- Audio ISR average **72–73 %** (idle, all notes held, sequencer with long delay and reverb). Peak 74–77 % normally, **96 % on a pattern switch** (7 KB pattern copy). Peak since boot 113 %, probably a start-up spike (to confirm).
+- Minimum free stack **2,784 B**, so real stack use is about 1.6 KB.
+- Not yet measured: sample (tape) mode, the mode Groove uses.
+
+Consequences:
+- Groove ISR work must stay well under ~2 %.
+- Groove pattern switches must be cheap (≤1.2 KB copy).
+- The RAM budget of ~1.4 KB still leaves ≥1.3 KB stack margin.
+
+### Phases 1 + 2: toggle, drum pads, mute row, 16-step sequencer (RAM only) (done)
+- **Toggle**: Params 1 + blank pad R2C7 (or encoder click while it's selected). The OLED shows "Groove On/Off" and the pad LED is lit while active.
+- **Groove view** (play mode only):
+  - R1–R5: drum pads (live touch, unchanged sampler behaviour); playing one selects its lane.
+  - R6: mute row (tap = mute; hold 0.4 s = select the lane silently).
+  - R7–R8: 16 steps of the selected lane (tap toggles; tap pressure = velocity).
+- **Sequencer**: shared transport and clock (Play, external CV/MIDI clock, MIDI start/stop, Prev = restart). One 16th note per clock. Hits are injected as finger pressure in `finger_synth_update`, with a gate of half a step.
+- **While Groove is on**: arp forced off, latch off, normal-pattern playback and recording suppressed. The preset and pattern data are untouched.
+- Hooks added: `edit.h` (edit-op routing, pad input, pad up, toggle), `touch.h` (no-stick, readpattern, latch, record, hit injection), `arp.h` (arp off, reset), `plinky.c` (tick, step-record advance), `ui.h` (OLED, LEDs, toggle LED, value text), `params.h` (param name).
+- `GROOVE=0 FACTORY_TEST_JIG=1` is still byte-identical to v0.B4.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Baseline v0.B4 | 408,540 | 13,348 | 27,624 |
+| Phases 1+2 default | 406,536 | **15,352** | 28,364 (+740) |
+| Phases 1+2 `GROOVE_STATS=1` | 407,184 | 14,704 | 28,396 |

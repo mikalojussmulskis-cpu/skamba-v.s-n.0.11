@@ -125,6 +125,9 @@ const char * const paramnames[P_LAST]={
 	[P_MICROTUNE]=I_MICRO "Microtone",
 	[P_STRIDE]=I_INTERVAL "Stride",
 
+#if GROOVE_ENABLE
+	[P_ENV1_UNUSED] = I_SEQ "Groove", // GROOVE HOOK
+#endif
 	[P_ARPONOFF] = I_NOTES "Arp On/Off",
 	[P_LATCHONOFF] = "Latch On/Off",
 

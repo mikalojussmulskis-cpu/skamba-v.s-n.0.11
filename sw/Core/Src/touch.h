@@ -422,7 +422,11 @@ void on_shift_up(int release_button) {
 			edit_mod = 0;
 		}
 		// these arent real params, so dont stick on them.
-		if (edit_param == P_ARPONOFF || edit_param == P_LATCHONOFF) {
+		if (edit_param == P_ARPONOFF || edit_param == P_LATCHONOFF
+#if GROOVE_ENABLE
+			|| edit_param == P_ENV1_UNUSED // GROOVE HOOK: the Groove toggle pad isn't a real param either
+#endif
+			) {
 			edit_param = P_LAST;
 			edit_mod = 0;
 		}
@@ -526,6 +530,7 @@ bool read_from_seq = false;
 FingerRecord* readpattern(int fi) {
 	if (rampattern_idx != cur_pattern || shift_down == SB_CLEAR)
 		return 0;
+	if (GROOVE_IS_ON) return 0; // GROOVE HOOK: normal sequencer is silent in Groove mode
 	FingerRecord* fr = &rampattern[(cur_step >> 4) & 3].steps[cur_step & 15][fi];
     // does any substep hold data?
 	int record_pressure = 0;
@@ -721,10 +726,11 @@ void finger_synth_update(int fi) {
 	int previous_pressure = fingers_ui_time[fi][(ui_frame - 2) & 7].pressure;
 	int substep = calcseqsubstep(0, 8);
 	bool latchon = (rampreset.flags & FLAGS_LATCH);
+	if (GROOVE_IS_ON) latchon = false; // GROOVE HOOK: no latch in Groove mode
   	int pressure = TOUCH_MIN_PRES;
 	int position = 0;
-#ifdef DEBUG
-	bool pressure_increasing = false; // silences an -Og false positive; release code generation unchanged
+#if defined(DEBUG) || GROOVE_ENABLE
+	bool pressure_increasing = false; // silences a maybe-uninitialized false positive; GROOVE=0 release code unchanged
 #else
 	bool pressure_increasing;
 #endif
@@ -816,7 +822,7 @@ void finger_synth_update(int fi) {
     FingerRecord* seq_record = &rampattern[quarter].steps[cur_step & 15][fi];
     int data_saved = false;	
     // We're recording into the loaded pattern
-    if (recording && rampattern_idx == cur_pattern) {
+    if (recording && rampattern_idx == cur_pattern && !GROOVE_IS_ON) { // GROOVE HOOK: don't record into the normal pattern
         // holding clear sets the pressure to zero, which will effectively clear the sequencer at this point
         int seq_pressure = shift_down == SB_CLEAR ? 0 : pres_compress(pressure);
         int seq_position = shift_down == SB_CLEAR ? 0 : pos_compress(position);
@@ -898,6 +904,10 @@ void finger_synth_update(int fi) {
 			}
 		}
 	}
+
+#if GROOVE_ENABLE // (#if, not just GROOVE_IS_ON: taking &pressure changes code generation even in dead code)
+	if (GROOVE_IS_ON) groove_finger(fi, &pressure, &position); // GROOVE HOOK: sequenced drum hits
+#endif
 
 	// === MIDI INPUT === //
 

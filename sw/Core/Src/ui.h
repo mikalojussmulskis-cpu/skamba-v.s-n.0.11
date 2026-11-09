@@ -607,6 +607,10 @@ const char *getparamstr(int p, int mod, int v, char *valbuf, char *decbuf) {
 	case P_LATCHONOFF:
 		if (mod) return "";
 		return ((rampreset.flags & FLAGS_LATCH)) ? "On" : "Off";
+#if GROOVE_ENABLE
+	case P_ENV1_UNUSED: // GROOVE HOOK
+		return groove_active ? "On" : "Off";
+#endif
 	case P_SAMPLE:
 		if (vscale == 0) {
 			return "Off";
@@ -802,6 +806,7 @@ void editmode_ui(void) {
 	}*/
 	else switch (editmode) {
 	case EM_PLAY:
+		if (GROOVE_IS_ON && !(lastencodertime && lastencodertime > millis() - 2000)) { groove_draw_oled(); break; } // GROOVE HOOK
 		if (ramsample.samplelen) {
 			DrawSamplePlayback(&ramsample);
 		}
@@ -1083,6 +1088,10 @@ void editmode_ui(void) {
 					k = (rampreset.flags & FLAGS_ARP) ? 255 : 0;
 				else if (pAorB == P_LATCHONOFF)
 					k = (rampreset.flags & FLAGS_LATCH) ? 255 : 0;
+#if GROOVE_ENABLE
+				else if (pAorB == P_ENV1_UNUSED)
+					k = groove_active ? 255 : 0; // GROOVE HOOK
+#endif
 #else
 				if (y == 0) {
 					if (fi == 1)
@@ -1159,6 +1168,7 @@ void editmode_ui(void) {
 			led_ram[fi][y] = led_gamma(k);
 		}
 	}
+	if (GROOVE_IS_ON && editmode == EM_PLAY) groove_draw_leds(); // GROOVE HOOK
 	{
 		led_ram[8][SB_PLAY] = playing ? led_gamma(clockglow) : 0;
 		led_ram[8][SB_PREV] = (editmode == EM_START) ? 255 : 0;

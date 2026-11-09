@@ -97,6 +97,7 @@ bool is_finger_an_edit_operation(int fi) { // return true if a given finger is a
 	case EM_SAMPLE:
 		return true;
 	case EM_PLAY:
+		if (GROOVE_IS_ON) return groove_pad_is_edit(fi, touch_ui_getlatest(fi)->pos >> 8); // GROOVE HOOK
 		return (fi == 0 && edit_param < P_LAST);
 	case EM_PARAMSA:
 	case EM_PARAMSB:
@@ -182,6 +183,11 @@ void finger_editing(int fi, int frame) {
 					if (pi == P_ARPONOFF) {
 						togglearp();
 					}
+#if GROOVE_ENABLE
+					else if (pi == P_ENV1_UNUSED) {
+						groove_toggle(); // GROOVE HOOK
+					}
+#endif
 					else if (pi == P_LATCHONOFF) {
 						togglelatch();
 					}
@@ -255,6 +261,7 @@ void finger_editing(int fi, int frame) {
 		if (uif->pressure<1 && ( fingerstable & bit)) {
 			//onfingerstableup((fingerediting&bit),fi, latestf, previousf);
 			fingerstable &= ~bit;
+			if (GROOVE_IS_ON) groove_pad_up(fi); // GROOVE HOOK
 			if (editmode == EM_PRESET) {
 				int firstsection = preset_section_from_rotstep(first_finger_rotstep);
 				
@@ -298,6 +305,7 @@ void finger_editing(int fi, int frame) {
 		int old = edit_param;
 
 
+		if (GROOVE_IS_ON && editmode == EM_PLAY) groove_pad(fi, fyi, trig, uif->pressure); else // GROOVE HOOK
 		switch (editmode) {
 		case EM_SAMPLE: {
 			SampleInfo* s = getrecsample();
@@ -392,6 +400,11 @@ void finger_editing(int fi, int frame) {
 					else if (edit_param == P_LATCHONOFF) {
 						togglelatch();
 					}
+#if GROOVE_ENABLE
+					else if (edit_param == P_ENV1_UNUSED) {
+						groove_toggle(); // GROOVE HOOK
+					}
+#endif
 #endif
 				} // trig
 				if (edit_param<0 || edit_param>P_LAST)

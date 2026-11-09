@@ -405,7 +405,7 @@ void seq_step(int initial) { // initial means - this is the initial clock pulse 
 void update_arp(bool clock) {
 	arpretrig = false;
 //	bool called_trig = false;
-	arpmode = ((rampreset.flags & FLAGS_ARP)) ? param_eval_int(P_ARPMODE, any_rnd, env16, pressure16) : -1;
+	arpmode = ((rampreset.flags & FLAGS_ARP) && !GROOVE_IS_ON) ? param_eval_int(P_ARPMODE, any_rnd, env16, pressure16) : -1; // GROOVE HOOK: arp off in Groove mode
 	if (arpmode>=0 && !isgrainpreview()) {
 		int div = param_eval_int(P_ARPDIV, any_rnd, env16, pressure16);
 		if (div < 0) {
@@ -453,6 +453,7 @@ void OnGotReset(void) {
 	arp_reset();
 	seq_step(1);
 	OnLoop();
+	if (GROOVE_IS_ON) groove_reset(); // GROOVE HOOK
 }
 
 extern volatile u8 gotclkin;

@@ -1923,6 +1923,7 @@ void DoAudio(u32 *dst, u32 *audioin) {
 	}
 	// do the clock first so we can update the sequencer step etc
 	bool gotclock = update_clock();
+	if (GROOVE_IS_ON) groove_tick(gotclock && ticks_since_clock == 0, isplaying(), playmode == PLAY_PREVIEW, last_clock_period); // GROOVE HOOK
 	static u8 whichhalf = 0;
 	// start of a full update of all strings
 	if (!whichhalf) {
@@ -1937,7 +1938,7 @@ void DoAudio(u32 *dst, u32 *audioin) {
 	// end of a full update of all strings
 	if (whichhalf) {
 		// you've released your fingers, you're recording in step mode - let's advance!
-		if (!physical_touch_finger && prev_physical_touch_finger && recording && !isplaying()) {
+		if (!physical_touch_finger && prev_physical_touch_finger && recording && !isplaying() && !GROOVE_IS_ON) { // GROOVE HOOK
 			set_cur_step(cur_step + 1, false);
 		}
 		prev_prev_total_ui_pressure = prev_total_ui_pressure;
