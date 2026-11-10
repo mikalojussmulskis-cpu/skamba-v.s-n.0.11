@@ -11,6 +11,7 @@ enum EDrumModels {
 	DM_KICK, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_TOM, DM_PERC,
 	DM_SAMPLE, // not synthesised: the lane plays its slice of the preset's sample on a Plinky voice
 	DM_KICK2, DM_CYMBAL, DM_RIM, DM_FM, DM_ZAP,
+	DM_GLITCH, DM_FOLD, DM_CLANG, DM_CHIRP, DM_CRUSH,
 	DM_LAST
 };
 // order in which the Shape pad / encoder steps through the models
@@ -45,6 +46,7 @@ extern int16_t drum_bus_rv[DRUM_BLOCK / 2]; // reverb send, half rate
 // p must stay valid while the voice sounds: level, sends, drive and the filter
 // are read live every block, so turning them affects ringing hits.
 void drums_trigger(int lane, const DrumParams* p, int vel); // vel 1..7 (audio ISR)
-// master volume 0..255; djfilter: global drum filter like the lane filter byte (audio ISR)
-void drums_render(int master, int djfilter);
+// master volume 0..255; djfilter: global drum filter like the lane filter byte;
+// comp: drum bus compressor amount 0 (off) .. 255 (audio ISR)
+void drums_render(int master, int djfilter, int comp);
 void drums_stop_all(void);

@@ -129,6 +129,7 @@ const char * const paramnames[P_LAST]={
 	[P_ENV1_UNUSED] = I_SEQ "Groove", // GROOVE HOOK
 	[P_ENV2_UNUSED] = I_SEQ "Groove Pads", // GROOVE HOOK
 	[P_SYS_UNUSED1] = I_SEQ "Drum Vol", // GROOVE HOOK
+	[P_RVUNUSED] = I_SEQ "Drum Comp", // GROOVE HOOK
 #endif
 	[P_ARPONOFF] = I_NOTES "Arp On/Off",
 	[P_LATCHONOFF] = "Latch On/Off",
@@ -846,6 +847,7 @@ void SetPattern(u8 pattern, bool force) {
 // all drums (DJ style). Params 2 + HPF pad (unprinted) = drum volume.
 static int groove_field_for_param(int p) {
 	if (p == P_SYS_UNUSED1 && GROOVE_IS_ON) return GF_VOLUME; // unprinted pad: drum master volume
+	if (p == P_RVUNUSED && GROOVE_IS_ON) return GF_COMP;      // unprinted pad: drum compressor
 	if (!GROOVE_GRID) return -1;
 	switch (p) {
 	case P_DLSEND: return GF_DLSEND;

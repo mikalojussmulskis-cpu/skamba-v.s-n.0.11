@@ -70,7 +70,8 @@ enum EGrooveFields { GF_MODEL, GF_TUNE, GF_SWEEP, GF_DECAY, GF_SNAP, GF_COLOR, G
 	GF_FILTER, GF_RESO,   // resonant filter of the selected lane
 	GF_SRR,               // sample rate reduction of the selected lane
 	GF_VOLUME,            // drum master volume (whole groove pattern)
-	GF_DJFILTER };        // global drum filter, DJ style (whole groove pattern)
+	GF_DJFILTER,          // global drum filter, DJ style (whole groove pattern)
+	GF_COMP };            // drum bus compressor (whole groove pattern)
 #define GROOVE_FIELD_IS_FILTER(f) ((f) == GF_FILTER || (f) == GF_DJFILTER)
 // value of a field of the selected lane, in param units (FULL = 1024)
 int  groove_get_field(int field);

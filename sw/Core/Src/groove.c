@@ -58,7 +58,8 @@ typedef struct GroovePattern { // 752 bytes
 	u8 volume;   // drum master volume
 	u8 nmods;
 	u8 djfilter; // global drum filter (DRUM_FILTER_OFF = off)
-	u8 rsv[3];
+	u8 comp;     // drum bus compressor (0 = off); was reserved (0) before
+	u8 rsv[2];
 	GrooveLane lane[GROOVE_LANES];
 	u8 step[GROOVE_LANES][GROOVE_STEPS];
 	GrooveMod mod[GROOVE_MAX_MODS];
@@ -464,14 +465,17 @@ int groove_get_field(int field) {
 		return pat.volume * 4;
 	if (field == GF_DJFILTER)
 		return pat.djfilter * 4;
+	if (field == GF_COMP)
+		return pat.comp * 4;
 	if (field < 0 || field > GF_SRR)
 		return 0;
 	return byte_to_value(field, field_byte(field));
 }
 
 void groove_set_field(int field, int value) {
-	if (field == GF_VOLUME || field == GF_DJFILTER) { // whole drum bus
-		u8* b = (field == GF_VOLUME) ? &pat.volume : &pat.djfilter;
+	if (field >= GF_VOLUME) { // whole drum bus
+		u8* b = (field == GF_VOLUME) ? &pat.volume : (field == GF_DJFILTER) ? &pat.djfilter : &pat.comp;
+		if (field > GF_COMP) return;
 		*b = clampi(qdiv(value, *b * 4, 4), 0, 255);
 		mark_dirty();
 		return;
@@ -543,11 +547,11 @@ static const char* const field_names[] = {
 	[GF_MODEL] = "Drum Type", [GF_TUNE] = "Tune", [GF_SWEEP] = "Pitch Sweep", [GF_DECAY] = "Decay",
 	[GF_SNAP] = "Snap", [GF_COLOR] = "Colour", [GF_DRIVE] = "Drive", [GF_LEVEL] = "Level",
 	[GF_DLSEND] = "Delay Send", [GF_RVSEND] = "Reverb Send", [GF_FILTER] = "Filter", [GF_RESO] = "Resonance",
-	[GF_SRR] = "Sample Rate", [GF_VOLUME] = "Drum Vol", [GF_DJFILTER] = "Drums Filter",
+	[GF_SRR] = "Sample Rate", [GF_VOLUME] = "Drum Vol", [GF_DJFILTER] = "Drums Filter", [GF_COMP] = "Drum Comp",
 };
 
 const char* groove_field_name(int field) {
-	return (field >= 0 && field <= GF_DJFILTER) ? field_names[field] : "";
+	return (field >= 0 && field <= GF_COMP) ? field_names[field] : "";
 }
 
 const char* groove_lane_label(void) {
@@ -562,8 +566,9 @@ const char* groove_field_str(int field, char* buf) {
 		sprintf(buf, "%d", (pat.volume * 100 + 127) / 255);
 		return buf;
 	}
-	u8 b = (field == GF_DJFILTER) ? pat.djfilter : field_byte(field);
+	u8 b = (field == GF_DJFILTER) ? pat.djfilter : (field == GF_COMP) ? pat.comp : field_byte(field);
 	switch (field) {
+	case GF_COMP:
 	case GF_SRR:
 		if (!b)
 			return "Off";
@@ -817,7 +822,7 @@ void groove_audio(void) {
 	for (int l = 0; l < GROOVE_LANES; ++l)
 		if (eff_live & (1 << l))
 			compute_eff(l);
-	drums_render(pat.volume, pat.djfilter);
+	drums_render(pat.volume, pat.djfilter, pat.comp);
 }
 
 // ---------------------------------------------------------------------------

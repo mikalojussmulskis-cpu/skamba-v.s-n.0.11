@@ -673,3 +673,18 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 - **Sample rate reduction** per lane (`DrumParams.srr`, sample & hold down to 1/64 rate) on the **Column** pad. Live, and can be modulated.
 - **Format v5**: `DrumParams` is 13 bytes (srr), the lane sound starts at lane offset 3, and the header has `djfilter`. v1–v4 patterns are migrated on load.
 - Host test `t2.c`: 14 checks, all passing. Filter stability sweep OK.
+
+### Phase 9: experimental drum models, drum bus compressor (done)
+- New models (appended to the stored numbering):
+  - **Glitch**: random per hit (resonant noise band, blip pitch and direction, lo-fi stutter); colour = randomness.
+  - **Fold**: sine with pitch drop through a sine wavefolder; colour = fold, snap = ring modulation.
+  - **Clang**: metallic FM with inharmonic ratios plus a metal layer.
+  - **Chirp**: upward laser sweep; colour = speed, snap = FM buzz.
+  - **Crush**: folded ring-mod tone and noise, bit-crushed (colour) and rate-reduced.
+- New engine pieces: `OSC_FOLD` pass (ring mod + wavefolder), per-voice bit crush, built-in minimum sample rate (`srr0`).
+- **Drum bus compressor** (`pat.comp`, formerly a reserved header byte, so old patterns = off):
+  - Unprinted pad Params 2 + FX-row feedback pad (`P_RVUNUSED`), "Drum Comp", active whenever Groove is on.
+  - Peak detector per block, instant attack (no overshoot), ~100 ms release, gain ramped up smoothly, make-up 85 % of the threshold drop (threshold 0 … −24 dB).
+  - Applied to dry and sends.
+  - Offline: no clipping at any setting; ~+2 dB RMS at mid settings.
+- Filter stability sweep (2,754 configs incl. new models) OK; host test `t2.c` 14/14.

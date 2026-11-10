@@ -31,16 +31,18 @@
 
 const uint8_t drum_model_order[DM_LAST] = {
 	DM_KICK, DM_KICK2, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_CYMBAL,
-	DM_TOM, DM_RIM, DM_PERC, DM_FM, DM_ZAP, DM_SAMPLE,
+	DM_TOM, DM_RIM, DM_PERC, DM_FM, DM_CLANG, DM_ZAP, DM_CHIRP,
+	DM_FOLD, DM_GLITCH, DM_CRUSH, DM_SAMPLE,
 };
 
 const char* const drum_model_names[DM_LAST] = {
 	[DM_KICK] = "Kick", [DM_KICK2] = "Kick2", [DM_SNARE] = "Snare", [DM_CLAP] = "Clap",
 	[DM_CHAT] = "C.Hat", [DM_OHAT] = "O.Hat", [DM_CYMBAL] = "Cymbal", [DM_TOM] = "Tom",
 	[DM_RIM] = "Rim", [DM_PERC] = "Cowbell", [DM_FM] = "FM", [DM_ZAP] = "Zap", [DM_SAMPLE] = "Sample",
+	[DM_GLITCH] = "Glitch", [DM_FOLD] = "Fold", [DM_CLANG] = "Clang", [DM_CHIRP] = "Chirp", [DM_CRUSH] = "Crush",
 };
 
-enum { OSC_NONE, OSC_SINE, OSC_SINE2, OSC_FM };
+enum { OSC_NONE, OSC_SINE, OSC_SINE2, OSC_FM, OSC_FOLD };
 enum { EF_OFF, EF_LP, EF_BP, EF_HP }; // excitation filter modes
 enum { EXC_NOISE, EXC_METAL };
 
@@ -49,6 +51,7 @@ static const float metal_hat[6] = { 205.3f, 304.4f, 369.6f, 522.7f, 540.0f, 800.
 static const float metal_cym[6] = { 263.0f, 400.0f, 421.0f, 531.0f, 588.0f, 913.0f }; // wider, more inharmonic
 static const float metal_bell[2] = { 540.0f, 800.0f };                                // cowbell
 static const float fm_ratios[8] = { 0.5f, 1.f, 1.4142f, 1.5f, 2.f, 2.7183f, 3.5f, 5.19f };
+static const float clang_ratios[4] = { 1.4142f, 2.7183f, 3.873f, 7.13f }; // inharmonic: metal
 static const uint16_t clap_gaps[4] = { 0, 290, 380, 330 }; // samples to the next burst, by bursts left
 
 typedef struct DrumVoice {
@@ -70,6 +73,8 @@ typedef struct DrumVoice {
 	float s1, s2;
 	float drv0;                    // built-in drive of the model
 	float srr_acc, srr_hold;       // sample rate reduction state
+	float fold, rm;                // OSC_FOLD: wavefolder gain, ring modulation depth
+	float crush, srr0;             // built-in bit crush (levels, 0 = off) and maximum rate
 	uint32_t rng;
 	uint16_t clap_timer;
 	uint8_t clap_left, osc, exc, nmetal, emode, model, lane, active;
@@ -108,6 +113,7 @@ static float tanpade(float x) { // tan(x) for 0 <= x < 1.45, Pade approximation
 	return x * (15.f - x2) / (15.f - 6.f * x2);
 }
 static inline float fabs_(float x) { return x < 0.f ? -x : x; }
+static inline float clampf_(float x, float a, float b) { return x < a ? a : x > b ? b : x; }
 static inline float psin(float ph) { // sin(2 pi ph) for ph in 0..1 (sign flipped; doesn't matter here)
 	float x = ph * 2.f - 1.f;
 	float y = 4.f * x * (1.f - fabs_(x));
@@ -191,6 +197,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 	d->p = p;
 	d->lane = lane;
 	d->model = p->model;
+	d->srr0 = 1.f;
 	exc_filter(d, EF_OFF, 0.f, 0.f); // models with noise / metal set their own below
 
 	const float g = vel * (1.f / 7.f);
@@ -318,6 +325,79 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		d->at = g;
 		d->kt = kdecay(erange(dec, 0.015f, 6.5f));
 		break;
+	case DM_GLITCH: { // random per hit: resonant noise band, blip pitch, lo-fi stutter (colour = randomness)
+		seed = seed * 1664525u + 1013904223u;
+		const float r1 = (seed >> 8) * (1.f / 16777216.f);
+		seed = seed * 1664525u + 1013904223u;
+		const float r2 = (seed >> 8) * (1.f / 16777216.f);
+		d->osc = OSC_SINE;
+		d->dph = (150.f + r1 * 1500.f) * t / SR;
+		d->penv = clampf_((r2 - 0.5f) * s * 8.f, -0.9f, 8.f);
+		d->kp = kdecay(0.01f);
+		d->at = g * (0.7f - n * 0.4f);
+		d->kt = kdecay(erange(dec, 0.004f, 5.f));
+		d->an = g * (0.4f + n);
+		d->kn = kdecay(erange(dec, 0.004f, 5.f));
+		exc_filter(d, EF_BP, (300.f + r2 * 7000.f) * (0.5f + c), 4.f);
+		d->srr0 = fexp2(-r1 * c * 5.f);
+		break; }
+	case DM_FOLD: // pitch-dropping sine through a wavefolder (colour), ring modulated (snap)
+		d->osc = OSC_FOLD;
+		d->dph = 55.f * t / SR;
+		d->dph2 = d->dph * 1.5f;
+		d->penv = 0.2f + s * 6.f;
+		d->kp = kdecay(0.02f);
+		d->rm = n;
+		d->fold = 0.25f + c * 1.5f;
+		d->at = g;
+		d->kt = kdecay(erange(dec, 0.02f, 6.5f));
+		break;
+	case DM_CLANG: // metallic FM (inharmonic ratios, colour) with a metal layer
+		d->osc = OSC_FM;
+		d->dph = 320.f * t / SR;
+		d->dph2 = d->dph * clang_ratios[(int)(c * 3.99f)];
+		d->idx = 0.4f + n * 1.6f;
+		d->ki = kdecay(erange(dec, 0.01f, 5.f) * 0.8f);
+		d->penv = s * 1.5f;
+		d->kp = kdecay(0.01f);
+		d->at = g * 0.8f;
+		d->kt = kdecay(erange(dec, 0.03f, 6.5f));
+		d->exc = EXC_METAL;
+		d->nmetal = 6;
+		d->mtab = metal_cym;
+		d->mf = t * 1.3f * PH32 / SR;
+		d->nmix = 0.15f;
+		d->an = g * 0.5f;
+		d->kn = kdecay(erange(dec, 0.01f, 5.f));
+		exc_filter(d, EF_HP, 3000.f, 0.7f);
+		break;
+	case DM_CHIRP: // laser sweeping up (colour = sweep time), FM buzz (snap)
+		d->osc = OSC_FM;
+		d->dph = 900.f * t / SR;
+		d->dph2 = d->dph * 2.f;
+		d->idx = n * 1.2f;
+		d->ki = kdecay(0.08f);
+		d->penv = -0.92f * (0.3f + 0.7f * s);
+		d->kp = kdecay(0.004f + c * 0.12f);
+		d->at = g;
+		d->kt = kdecay(erange(dec, 0.02f, 6.f));
+		break;
+	case DM_CRUSH: // folded ring-mod tone and noise, bit crushed (colour) and rate reduced
+		d->osc = OSC_FOLD;
+		d->dph = 120.f * t / SR;
+		d->dph2 = d->dph * 2.01f;
+		d->penv = s * 4.f;
+		d->kp = kdecay(0.01f);
+		d->rm = 0.5f;
+		d->fold = 1.2f;
+		d->at = g * 0.8f;
+		d->kt = kdecay(erange(dec, 0.01f, 5.5f));
+		d->an = g * n;
+		d->kn = kdecay(erange(dec, 0.01f, 5.5f));
+		exc_filter(d, EF_BP, 2000.f, 1.f);
+		d->crush = 2.f + (1.f - c) * 30.f;
+		d->srr0 = fexp2(-(1.5f + c * 2.5f));
+		break;
 	case DM_ZAP: // huge fast pitch sweep (colour = sweep time)
 		d->osc = OSC_SINE;
 		d->dph = 55.f * t / SR;
@@ -384,6 +464,26 @@ HOT static void pass_fm(DrumVoice* d, float* buf, int n) {
 		idx *= ki;
 	}
 	d->ph = ph; d->ph2 = ph2; d->penv = penv; d->at = at; d->idx = idx;
+}
+
+HOT static void pass_fold(DrumVoice* d, float* buf, int n) {
+	float ph = d->ph, ph2 = d->ph2, penv = d->penv, at = d->at;
+	const float dph = d->dph, dph2 = d->dph2, kp = d->kp, kt = d->kt, rm = d->rm, fg = d->fold;
+	for (int i = 0; i < n; ++i) {
+		float pm = 1.f + penv;
+		ph += dph * pm;
+		ph -= (float)(ph >= 1.f);
+		ph2 += dph2 * pm;
+		ph2 -= (float)(ph2 >= 1.f);
+		float x = psin(ph);
+		x *= 1.f - rm + rm * psin(ph2); // ring modulation
+		float q = x * fg + 2.f;           // sine wavefolder: sin(2 pi * x * fold)
+		q -= (float)(int)q;
+		buf[i] = psin(q) * at;
+		at *= kt;
+		penv *= kp;
+	}
+	d->ph = ph; d->ph2 = ph2; d->penv = penv; d->at = at;
 }
 
 // noise or metal -> one-pole high-pass -> 2-pole filter -> amplitude, added to buf
@@ -454,7 +554,16 @@ static void dj_filter_pass(int16_t* x, int n, float* st, float a1, float a2, flo
 	st[0] = s1; st[1] = s2;
 }
 
-HOT void drums_render(int master, int djfilter) {
+// drum bus compressor: peak detector per block, instant attack, ~100 ms release,
+// gain ramped across the block, automatic make-up gain
+static float comp_gain = 1.f, comp_out = 1.f;
+static void ramp_gain(int16_t* x, int n, float g0, float g1) {
+	const float dg = (g1 - g0) / n;
+	for (int i = 0; i < n; ++i, g0 += dg)
+		x[i] = sat16((int32_t)(x[i] * g0));
+}
+
+HOT void drums_render(int master, int djfilter, int comp) {
 	memset(drum_bus_dry, 0, sizeof(drum_bus_dry));
 	memset(drum_bus_dl, 0, sizeof(drum_bus_dl));
 	memset(drum_bus_rv, 0, sizeof(drum_bus_rv));
@@ -498,7 +607,8 @@ HOT void drums_render(int master, int djfilter) {
 		}
 		const float cl = (fmode == 1) ? 1.f : 0.f, ch = 1.f - cl;
 		const float drv = d->drv0 + p->drive * (4.f / 255.f), dg = 1.f + drv;
-		const float srr_rate = p->srr ? fexp2(p->srr * (-6.f / 255.f)) : 1.f;
+		float srr_rate = p->srr ? fexp2(p->srr * (-6.f / 255.f)) : 1.f;
+		if (d->srr0 < srr_rate) srr_rate = d->srr0;
 		const float gd = p->level * mg;
 		const float gdl = gd * p->dlsend * (0.25f / 255.f), grv = gd * p->rvsend * (0.25f / 255.f);
 
@@ -507,6 +617,7 @@ HOT void drums_render(int master, int djfilter) {
 			if (use_tone) {
 				if (d->osc == OSC_SINE) pass_sine(d, buf, SUB);
 				else if (d->osc == OSC_SINE2) pass_sine2(d, buf, SUB);
+				else if (d->osc == OSC_FOLD) pass_fold(d, buf, SUB);
 				else pass_fm(d, buf, SUB);
 			}
 			else
@@ -535,7 +646,13 @@ HOT void drums_render(int master, int djfilter) {
 					x = x > 1.5f ? 1.5f : x < -1.5f ? -1.5f : x;
 					buf[i] = x - 0.148148f * x * x * x;
 				}
-			// 5) sample rate reduction (live): sample & hold at a lower rate
+			// 5a) bit crush (built into some models)
+			if (d->crush > 0.f) {
+				const float lv = d->crush, inv = 1.f / d->crush;
+				for (int i = 0; i < SUB; ++i)
+					buf[i] = (float)(int)(buf[i] * lv) * inv;
+			}
+			// 5b) sample rate reduction (live): sample & hold at a lower rate
 			if (srr_rate < 1.f) {
 				float acc = d->srr_acc, hold = d->srr_hold;
 				for (int i = 0; i < SUB; ++i) {
@@ -583,4 +700,25 @@ HOT void drums_render(int master, int djfilter) {
 	}
 	else
 		memset(dj_s, 0, sizeof(dj_s));
+
+	if (comp) {
+		int peak = 0;
+		for (int i = 0; i < DRUM_BLOCK; ++i) {
+			int a = drum_bus_dry[i] < 0 ? -drum_bus_dry[i] : drum_bus_dry[i];
+			if (a > peak) peak = a;
+		}
+		const float thr = 32767.f * fexp2(comp * (-4.f / 255.f)); // 0 .. -24 dB
+		const float target = peak > thr ? thr / peak : 1.f;
+		if (target < comp_gain) comp_gain = target;
+		else comp_gain += (target - comp_gain) * 0.02f;
+		// make-up restores 85 % of the threshold drop: the loudest peaks stay below full scale
+		const float out = comp_gain * fexp2(comp * (0.85f * 4.f / 255.f));
+		const float start = out < comp_out ? out : comp_out; // gain drops apply at once (no overshoot)
+		ramp_gain(drum_bus_dry, DRUM_BLOCK, start, out);
+		ramp_gain(drum_bus_dl, DRUM_BLOCK / 2, start, out);
+		ramp_gain(drum_bus_rv, DRUM_BLOCK / 2, start, out);
+		comp_out = out;
+	}
+	else
+		comp_gain = comp_out = 1.f;
 }
