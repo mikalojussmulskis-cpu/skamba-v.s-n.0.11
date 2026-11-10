@@ -84,17 +84,33 @@ _Static_assert((sizeof(GroovePattern) & 7) == 0, "flash writes are 8-byte units"
 
 #define VOLUME_DEFAULT 128
 
-// default kit                 model      tune sweep decay snap colour drive level  dly  rvb  filter       reso srr
-static const DrumParams default_kit[GROOVE_LANES] = {
-	{ DM_KICK,       0, 150, 133,  70, 110,  40, 230,   0,   0, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
-	{ DM_SNARE,      0,  40, 115, 130, 150,   0, 200,   0,  13, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
-	{ DM_CLAP,       0,   0,  26,   0, 130,   0, 102,   0,  13, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
-	{ DM_CHAT,       0,   0, 109,  40, 140,   0, 170,   0,   0, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
-	{ DM_OHAT,       0,   0, 102,  40, 140,   0, 150,   0,   7,              77, 0, 0,             217 },
-	{ DM_TOM,      -40,  90, 153,  30,  60,   0, 210,   0,  10, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
-	{ DM_RIM,        0,  20, 118, 120, 100,   0, 170,   0,  13, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
-	{ DM_FM,         0,  30, 148, 110, 180,   0, 160,  70,  17, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
+// default sound of each model: the default kit, a new lane of that model, and Clear held on a lane
+#define FO DRUM_FILTER_OFF
+static const DrumParams model_default[DM_LAST] = {
+	//            model      tune sweep decay snap colour drive level  dly  rvb  filter reso srr  fenv
+	[DM_KICK]   = { DM_KICK,     0, 150, 133,  70, 110,  40, 230,   0,   0,  FO,    0,  0,  FO },
+	[DM_SNARE]  = { DM_SNARE,    0,  40, 115, 130, 150,   0, 200,   0,  13,  FO,    0,  0,  FO },
+	[DM_CLAP]   = { DM_CLAP,     0,   0,  26,   0, 130,   0, 102,   0,  13,  FO,    0,  0,  FO },
+	[DM_CHAT]   = { DM_CHAT,     0,   0, 109,  40, 140,   0, 170,   0,   0,  FO,    0,  0,  FO },
+	[DM_OHAT]   = { DM_OHAT,     0,   0, 102,  40, 140,   0, 150,   0,   7,  77,    0,  0, 217 },
+	[DM_TOM]    = { DM_TOM,    -40,  90, 153,  30,  60,   0, 210,   0,  10,  FO,    0,  0,  FO },
+	[DM_PERC]   = { DM_PERC,     0,   0,  90,   0, 128,  20, 160,   0,   0,  FO,    0,  0,  FO },
+	[DM_SAMPLE] = { DM_SAMPLE,   0,   0, 128,   0, 128,   0, 200,   0,   0,  FO,    0,  0,  FO },
+	[DM_KICK2]  = { DM_KICK2,    0, 140, 110,  80, 120,  30, 230,   0,   0,  FO,    0,  0,  FO },
+	[DM_CYMBAL] = { DM_CYMBAL,   0,   0, 150,  60, 120,   0, 140,   0,  40,  FO,    0,  0,  FO },
+	[DM_RIM]    = { DM_RIM,      0,  20, 118, 120, 100,   0, 170,   0,  13,  FO,    0,  0,  FO },
+	[DM_FM]     = { DM_FM,       0,  30, 148, 110, 180,   0, 160,  70,  17,  FO,    0,  0,  FO },
+	[DM_ZAP]    = { DM_ZAP,      0, 160,  90,  40,  60,   0, 180,   0,   0,  FO,    0,  0,  FO },
+	[DM_GLITCH] = { DM_GLITCH,   0, 100, 110, 120, 160,   0, 180,   0,  10,  FO,    0,  0,  FO },
+	[DM_FOLD]   = { DM_FOLD,     0, 150, 150,  80, 140,   0, 200,   0,   0,  FO,    0,  0,  FO },
+	[DM_CLANG]  = { DM_CLANG,    0,  20, 150, 140, 120,   0, 160,   0,  20,  FO,    0,  0,  FO },
+	[DM_CHIRP]  = { DM_CHIRP,    0, 180, 110,  80,  60,   0, 170,   0,  10,  FO,    0,  0,  FO },
+	[DM_CRUSH]  = { DM_CRUSH,    0,  80, 110, 100, 170,   0, 180,   0,   0,  FO,    0,  0,  FO },
+	[DM_BASS]   = { DM_BASS,     0,  30, 115,  40, 100,  20, 200,   0,   0, 102,   77,  0, 217 },
+	[DM_ACID]   = { DM_ACID,     0,  60,  77, 150,   0,  20, 128,   0,  10,  64,  190,  0, 208 },
 };
+#undef FO
+static const u8 kit_models[GROOVE_LANES] = { DM_KICK, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_TOM, DM_RIM, DM_FM };
 
 // ---------------------------------------------------------------------------
 // Pad layout in the drum grid
@@ -248,7 +264,7 @@ static void default_pattern(void) {
 	pat.djfilter = DRUM_FILTER_OFF;
 	for (int l = 0; l < GROOVE_LANES; ++l) {
 		pat.lane[l].length = GROOVE_PAGE;
-		pat.lane[l].snd = default_kit[l];
+		pat.lane[l].snd = model_default[kit_models[l]];
 	}
 }
 
@@ -488,10 +504,7 @@ static void trigger_lane(int l, int vel, int step, int gate, int legato) {
 static void note_model_chosen(int l) {
 	DrumParams* d = &pat.lane[l].snd;
 	if (d->fenv == DRUM_FILTER_OFF || (acid_prev_model != DM_ACID && acid_prev_model != DM_BASS)) {
-		//                                    model    tune swp dec snap col drv lvl dl rv filt reso srr fenv
-		static const DrumParams acid_kit = { DM_ACID,  0,  60,  77, 150,   0, 20, 128, 0, 10,  64, 190, 0, 208 };
-		static const DrumParams bass_kit = { DM_BASS,  0,  30, 115,  40, 100, 20, 200, 0,  0, 102,  77, 0, 217 };
-		*d = d->model == DM_ACID ? acid_kit : bass_kit;
+		*d = model_default[d->model];
 		mark_dirty();
 	}
 	if (d->model != DM_ACID)
@@ -678,6 +691,34 @@ void groove_pad_up(int fi) {
 		mark_dirty();
 	}
 	pad_row[fi] = 255;
+}
+
+// Clear held in the drum grid: the selected lane loses its steps, locks, modulation
+// and loop (back to 1-16) and gets its model's default sound. Mute and model stay.
+void groove_clear_lane(void) {
+	int l = lane_sel;
+	GrooveLane* ln = &pat.lane[l];
+	memset(pat.step[l], 0, sizeof(pat.step[l]));
+	for (int i = pat.nlocks - 1; i >= 0; --i)
+		if (pat.lock[i].lane == l)
+			pat.lock[i] = pat.lock[--pat.nlocks];
+	for (int i = pat.nmods - 1; i >= 0; --i)
+		if (pat.mod[i].lane == l)
+			pat.mod[i] = pat.mod[--pat.nmods];
+	ln->snd = model_default[ln->snd.model < DM_LAST ? ln->snd.model : DM_KICK];
+	ln->length = GROOVE_PAGE;
+	LANE_SET_START(ln, 0);
+	if (lock_step != NO_STEP && lock_lane == l)
+		lock_step = NO_STEP;
+	if (acid_gen == l + 1)
+		acid_gen = 0; // no generated line: the lane stays empty
+	gate[l] = 0;
+	slide_from &= ~(1 << l);
+	eff_live &= ~(1 << l);
+	if (((lane_pos[l] - LANE_START(ln)) & 63) >= ln->length)
+		lane_pos[l] = 0;
+	mark_dirty();
+	ShowMessage(F_20_BOLD, lane_names[l], "cleared");
 }
 
 int groove_lock_active(void) {

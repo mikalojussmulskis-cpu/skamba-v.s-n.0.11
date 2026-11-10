@@ -274,6 +274,10 @@ void recording_trigger(void) {
 
 void on_shift_hold(int button) {
 	
+#if GROOVE_ENABLE
+	if (GROOVE_GRID && editmode == EM_PLAY && shift_down == SB_CLEAR && shift_down_time == 64 + 5)
+		groove_clear_lane(); // GROOVE HOOK: hold Clear = clear the selected drum lane
+#endif
 	if (editmode == EM_PRESET) {
 		if (shift_down == SB_CLEAR && shift_down_time > 64+4) {
 #if GROOVE_ENABLE
@@ -488,7 +492,7 @@ void on_shift_up(int release_button) {
 		recordingknobs = 0;
 		break;
 	case SB_CLEAR:
-		if (!isplaying() && recording && editmode == EM_PLAY) {
+		if (!isplaying() && recording && editmode == EM_PLAY && !GROOVE_GRID) { // GROOVE HOOK: not in the drum grid
 			bool dirty = false;
 			int q = (cur_step >> 4) & 3;
 			FingerRecord* fr = &rampattern[q].steps[cur_step & 15][0];

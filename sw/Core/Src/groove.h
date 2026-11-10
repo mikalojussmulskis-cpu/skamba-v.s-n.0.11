@@ -98,6 +98,7 @@ enum EGrooveFields { GF_MODEL, GF_TUNE, GF_SWEEP, GF_DECAY, GF_SNAP, GF_COLOR, G
 #define GROOVE_FIELD_IS_LANE(f) ((f) >= 0 && ((f) <= GF_FENV || (f) == GF_COND))
 int  groove_lock_active(void);              // step lock mode (long press on a step)
 void groove_lock_clear(void);               // encoder click in step lock mode
+void groove_clear_lane(void);               // Clear held in the drum grid: selected lane's steps + default sound
 int  GrooveScaleQuantize(int semitones);    // params.h: nearest note of Plinky's scale
 int  GrooveScaleDegree(int degree);         // params.h: semitones of the degree (0 = root, 7 = usually the octave)
 // value of a field of the selected lane, in param units (FULL = 1024)

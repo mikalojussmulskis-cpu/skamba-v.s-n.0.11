@@ -788,3 +788,14 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 | Phase 14 default | 408,124 | 13,764 | 30,564 |
 | **Phase 15 default** | **407,528** | **14,360** | **30,540** |
 | Phase 15 STATS | 408,112 | 13,776 | 30,572 |
+
+### Phase 16: hold Clear = clear the selected drum lane (done)
+- **Hold Clear** (about as long as the Preset-mode clear) in the drum grid: the selected lane loses all its steps, its step locks and conditions, its modulation, and its loop goes back to 1–16; its sound goes back to the **default of the lane's current engine** (a Cymbal lane gets the Cymbal default, not the kit's original sound). The model and the mute state stay. An Acid lane stays empty (no generated line). OLED: `lane 3 / cleared`.
+- One default sound per model (`model_default[]`): the default kit's values for its 8 models, the Bass / Acid starting sounds, the lab voicings for the rest. The default kit, the Bass / Acid starting sound and the lane clear all read this table.
+- In the drum grid, releasing Clear in Plinky's step-record mode no longer erases a Plinky step.
+- Host tests: t3 16, t4 15, t5 20, t6 17, t7 (FX on) 27, new t8 9, all pass. `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 15 default | 407,528 | 14,360 | 30,540 |
+| **Phase 16 default** | **407,932** | **13,956** | **30,540** |
