@@ -84,7 +84,9 @@ void togglearp(void) {
 	ShowMessage(F_32_BOLD, ((rampreset.flags & FLAGS_ARP)) ? "arp on" : "arp off", 0);
 	ramtime[GEN_SYS] = millis();
 }
+#if !GROOVE_ENABLE // GROOVE HOOK: already defined in touch.h; a redeclaration inside the -Os region warns
 void clearlatch(void);
+#endif
 void togglelatch(void) {
 	rampreset.flags^= FLAGS_LATCH;
 	ShowMessage(F_32_BOLD, ((rampreset.flags & FLAGS_LATCH)) ? "latch on" : "latch off", 0);

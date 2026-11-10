@@ -297,11 +297,28 @@ s8 enable_audio = EA_OFF;
 #include "flash.h"
 #include "params.h"
 #include "touch.h"
+// GROOVE HOOK: Groove builds need the flash. Calibration, pad editing, WebUSB
+// and the OLED/LED drawing are not DSP, so they are compiled for size in Groove
+// builds (GROOVE=0 keeps the original flags and binary).
+#if GROOVE_ENABLE
+#pragma GCC push_options
+#pragma GCC optimize("Os")
+#endif
 #include "calib.h"
+#if GROOVE_ENABLE
+#pragma GCC pop_options
+#endif
 #include "arp.h"
+#if GROOVE_ENABLE
+#pragma GCC push_options
+#pragma GCC optimize("Os")
+#endif
 #include "edit.h"
 
 #include "webusb.h"
+#if GROOVE_ENABLE
+#pragma GCC pop_options
+#endif
 
 
 bool gatecv_trig = false;
@@ -3450,5 +3467,12 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 
 
 
+#if GROOVE_ENABLE
+#pragma GCC push_options
+#pragma GCC optimize("Os") // GROOVE HOOK: see above
+#endif
 #include "ui.h"
+#if GROOVE_ENABLE
+#pragma GCC pop_options
+#endif
 

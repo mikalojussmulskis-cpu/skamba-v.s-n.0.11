@@ -1077,10 +1077,9 @@ void groove_draw_oled(void) {
 	if (pending_slot != NO_SLOT)
 		fdrawstr(-128, 2, F_12, "P%d>%d", cur_slot + 1, pending_slot + 1);
 	else if (drums_pending == PEND_DRUMS)
-		fdrawstr(-128, 2, F_12, "P%d >bar", cur_slot + 1);
-	else
-		fdrawstr(-128, 2, F_12, "%sP%d %d/%d", recording_now ? "\x9c" : "", cur_slot + 1,
-			lane_pos[lane_sel] + 1, sel->length);
+		fdrawstr(-128, 2, F_12, ">bar");
+	else if (recording_now)
+		fdrawstr(-128, 2, F_12, "\x9c");
 	// one activity meter per lane; dithered = muted, top line = selected
 	for (int l = 0; l < GROOVE_LANES; ++l) {
 		int x0 = l * 16 + 1, x1 = x0 + 13;

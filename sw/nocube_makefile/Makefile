@@ -155,6 +155,8 @@ $(BUILD_DIR)/Core/Src/drums.o: CFLAGS := $(filter-out -O3,$(CFLAGS)) -Os
 ifneq ($(GROOVE),0)
 $(BUILD_DIR)/Drivers/%.o: CFLAGS := $(filter-out -O3,$(CFLAGS)) -Os
 $(BUILD_DIR)/Core/Src/tinyusb/%.o: CFLAGS := $(filter-out -O3,$(CFLAGS)) -Os
+# start-up, accelerometer driver and HAL MSP glue: not time critical either
+$(BUILD_DIR)/Core/Src/main.o $(BUILD_DIR)/Core/Src/lis2dh12_reg.o $(BUILD_DIR)/Core/Src/stm32l4xx_hal_msp.o: CFLAGS := $(filter-out -O3,$(CFLAGS)) -Os
 endif
 endif
 
