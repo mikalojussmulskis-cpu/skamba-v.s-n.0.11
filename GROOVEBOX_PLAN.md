@@ -706,3 +706,20 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 - **Velocity curve**: `vel_gain[] = 0.03 … 1.0`; drum pad rows = 100/50/30/8/3 %.
 - **Format v6**: lane = length, flags, sound (14 bytes incl. fenv); the unused `start` field was dropped; 48 locks appended (pattern 944 B). v1–v5 migrated on load.
 - Host test `t3.c`: 15 checks, all passing. Filter stability sweep OK.
+
+### Phase 11: separate drum transport, engine polish (done)
+- **Drum transport** (`drums_play`, `groove_play_button`, `groove_transport`, `groove_play_led`):
+  - Play while the **drum grid** is shown starts/stops the drums only; Play in the **Plinky view** starts/stops Plinky as before.
+  - Both sequencers count one **bar clock** (`bar_step`), anchored where the first of them started. Starting the second one waits for the next bar (Play LED blinks fast, OLED shows "P1 >bar"); pressing Play again cancels. Plinky's synced start jumps to its loop start (`groove_tick` returns 1 → hook in `plinky.c`).
+  - Stopping is immediate; sounding hits ring out. MIDI start/continue/stop and the eurorack-clock auto start drive both; the clock-loss stop stops both.
+  - Live recording into the drum grid follows the drum transport. The old "drums follow Plinky's preview" behaviour is gone.
+- **Engine polish** (`drums.c`):
+  - **Declick**: a retriggered or stolen voice carries its last output sample into a ~1 ms fade (`dc`), so fast repeats and steals no longer step (kick retrigger step 31,129 → 2,414).
+  - **Soft-clip output stage** on the dry bus (cubic, ×1.5 small-signal gain; `OUT_GAIN` 36,000 → 24,000 so single hits keep their level). Stacked hits saturate smoothly instead of hard clipping: the extreme-settings sweep went from 611,955 hard-clipped samples to 236.
+  - Kick: pitch-drop time follows the sweep amount (10–30 ms). Hats: Q 1.3 on the excitation high-pass (a small peak at the cutoff).
+  - Levels re-measured (default kit, master 128): unchanged within 0.3 dB; hats +0.6 dB.
+- Host tests: `t3.c` 15/15, new `t4.c` (transport) 15/15; stability sweep 2,754 configs OK. `GROOVE=0 FACTORY_TEST_JIG=1` still byte-identical to v0.B4.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 11 default | 421,028 | **860** | 30,460 |

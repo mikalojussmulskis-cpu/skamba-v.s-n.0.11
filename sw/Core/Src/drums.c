@@ -24,7 +24,7 @@
 
 #define SR 31250.f        // Plinky's audio sample rate (ACCURATE_FS)
 #define VOICES 6          // drum polyphony (kicks are never stolen)
-#define OUT_GAIN 36000.f  // at master volume 255 and lane level 255
+#define OUT_GAIN 24000.f  // at master volume 255 and lane level 255, before the x1.5 of the output soft clip
 #define SILENT 5e-4f      // a voice stops below this amplitude (about -66 dB)
 #define PH32 4294967296.f // 2^32: phase scale of the metal oscillators
 #define SUB 32            // voices are rendered in sub-blocks of 32 samples (keeps the ISR stack small)
@@ -76,6 +76,7 @@ typedef struct DrumVoice {
 	float fold, rm;                // OSC_FOLD: wavefolder gain, ring modulation depth
 	float crush, srr0;             // built-in bit crush (levels, 0 = off) and maximum rate
 	float fenv, fenv_k;            // filter envelope (1 -> 0) and its per-block decay
+	float last, dc;                // last output sample; declick tail of the hit this voice replaced
 	uint32_t rng;
 	uint16_t clap_timer;
 	uint8_t clap_left, osc, exc, nmetal, emode, model, lane, active;
@@ -193,7 +194,9 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 				dv[i].kn = 0.995f;
 
 	DrumVoice* d = &dv[alloc_voice(lane)];
+	const float last = d->active ? d->last : 0.f; // declick: where the replaced hit left off
 	memset(d, 0, sizeof(*d));
+	d->dc = last;
 	seed = seed * 1664525u + 1013904223u;
 	d->rng = seed | 1;
 	d->p = p;
@@ -216,7 +219,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		d->osc = OSC_SINE;
 		d->dph = 46.f * t / SR;
 		d->penv = 0.2f + s * 7.f;
-		d->kp = kdecay(0.016f);
+		d->kp = kdecay(0.01f + s * 0.02f); // pitch drop 10 .. 30 ms: a deeper sweep also lasts longer
 		d->at = g;
 		d->kt = kdecay(erange(dec, 0.025f, 6.5f));
 		d->an = g * n * 0.9f;
@@ -277,7 +280,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 			d->mtab = metal_hat;
 			d->nmix = n;
 			d->k1 = kfilter(3000.f);
-			exc_filter(d, EF_HP, 5000.f + c * 3500.f, 0.9f);
+			exc_filter(d, EF_HP, 5000.f + c * 3500.f, 1.3f); // a little peak at the cutoff: the "ting"
 			d->an = g * 2.6f;
 			d->kn = (p->model == DM_CHAT) ? kdecay(erange(dec, 0.004f, 5.3f)) : kdecay(erange(dec, 0.03f, 5.f));
 		}
@@ -696,6 +699,14 @@ HOT void drums_render(int master, int djfilter, int comp) {
 					rv[i] = sat16(rv[i] + (int32_t)(x * grv));
 				}
 			}
+			// 7) declick: the hit this voice replaced (retrigger or steal) fades out over ~1 ms
+			if (d->dc != 0.f) {
+				float dc = d->dc;
+				for (int i = 0; i < SUB; ++i, dc *= 0.93f)
+					dry[i] = sat16(dry[i] + (int32_t)dc);
+				d->dc = fabs_(dc) > 1.f ? dc : 0.f;
+			}
+			d->last = buf[SUB - 1] * gd;
 		}
 
 		if (d->at < SILENT && d->an < SILENT && !d->clap_left)
@@ -739,4 +750,11 @@ HOT void drums_render(int master, int djfilter, int comp) {
 	}
 	else
 		comp_gain = comp_out = 1.f;
+
+	// output: cubic soft clip (gain 1.5 for small signals, 1.0 at full scale), so
+	// stacked hits saturate smoothly instead of clipping hard
+	for (int i = 0; i < DRUM_BLOCK; ++i) {
+		const float x = drum_bus_dry[i] * (1.f / 32768.f);
+		drum_bus_dry[i] = (int16_t)((1.5f - 0.5f * x * x) * x * 32767.f);
+	}
 }
