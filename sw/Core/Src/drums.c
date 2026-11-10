@@ -30,7 +30,7 @@
 #define SUB 32            // voices are rendered in sub-blocks of 32 samples (keeps the ISR stack small)
 
 const uint8_t drum_model_order[DM_LAST] = {
-	DM_KICK, DM_KICK2, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_CYMBAL,
+	DM_KICK, DM_KICK2, DM_BASS, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_CYMBAL,
 	DM_TOM, DM_RIM, DM_PERC, DM_FM, DM_CLANG, DM_ZAP, DM_CHIRP,
 	DM_FOLD, DM_GLITCH, DM_CRUSH, DM_SAMPLE,
 };
@@ -40,6 +40,7 @@ const char* const drum_model_names[DM_LAST] = {
 	[DM_CHAT] = "C.Hat", [DM_OHAT] = "O.Hat", [DM_CYMBAL] = "Cymbal", [DM_TOM] = "Tom",
 	[DM_RIM] = "Rim", [DM_PERC] = "Cowbell", [DM_FM] = "FM", [DM_ZAP] = "Zap", [DM_SAMPLE] = "Sample",
 	[DM_GLITCH] = "Glitch", [DM_FOLD] = "Fold", [DM_CLANG] = "Clang", [DM_CHIRP] = "Chirp", [DM_CRUSH] = "Crush",
+	[DM_BASS] = "Bass",
 };
 
 enum { OSC_NONE, OSC_SINE, OSC_SINE2, OSC_FM, OSC_FOLD };
@@ -77,6 +78,8 @@ typedef struct DrumVoice {
 	float crush, srr0;             // built-in bit crush (levels, 0 = off) and maximum rate
 	float fenv, fenv_k;            // filter envelope (1 -> 0) and its per-block decay
 	float last, dc;                // last output sample; declick tail of the hit this voice replaced
+	float kt_rel;                  // tone decay after the hold (DM_BASS)
+	uint16_t hold;                 // blocks the tone holds its level before decaying
 	uint32_t rng;
 	uint16_t clap_timer;
 	uint8_t clap_left, osc, exc, nmetal, emode, model, lane, active;
@@ -208,7 +211,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 	// velocity 1..7 -> gain: wide range, row 5 of the drum pads is barely audible
 	static const float vel_gain[8] = { 0.f, 0.03f, 0.08f, 0.16f, 0.3f, 0.5f, 0.75f, 1.f };
 	const float g = vel_gain[vel & 7];
-	const float t = fexp2(p->tune * (1.f / 128.f));
+	const float t = fexp2(p->tune * (1.f / 60.f)); // 5 units per semitone
 	const float s = p->sweep * (1.f / 255.f);
 	const float n = p->snap * (1.f / 255.f);
 	const float c = p->tone * (1.f / 255.f);
@@ -405,6 +408,22 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		d->crush = 2.f + (1.f - c) * 30.f;
 		d->srr0 = fexp2(-(1.5f + c * 2.5f));
 		break;
+	case DM_BASS: // sustained note: wavefolded sine (colour = harmonics) held for the decay time, punch (sweep), click (snap)
+		d->osc = OSC_FOLD;
+		d->dph = 55.f * t / SR;
+		d->dph2 = d->dph;
+		d->fold = 0.25f + c * 1.25f;
+		d->penv = s * 2.f;
+		d->kp = kdecay(0.008f);
+		d->at = g;
+		d->kt = 1.f;                 // holds ...
+		d->kt_rel = kdecay(0.02f);   // ... then a 20 ms release
+		d->hold = (uint16_t)(erange(dec, 0.03f, 5.5f) * (SR / DRUM_BLOCK)); // 30 ms .. 1.4 s
+		d->an = g * n * 0.5f;
+		d->kn = kdecay(0.002f);
+		exc_filter(d, EF_HP, 1500.f, 0.7f);
+		d->drv0 = 0.4f;
+		break;
 	case DM_ZAP: // huge fast pitch sweep (colour = sweep time)
 		d->osc = OSC_SINE;
 		d->dph = 55.f * t / SR;
@@ -418,7 +437,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		break;
 	}
 	// filter envelope: decays twice as fast as the main amplitude (k^2 per sample, ^64 per block)
-	float kb = (d->osc != OSC_NONE) ? d->kt : (d->kn_tail > 0.f ? d->kn_tail : d->kn);
+	float kb = (d->osc != OSC_NONE) ? (d->hold ? d->kt_rel : d->kt) : (d->kn_tail > 0.f ? d->kn_tail : d->kn);
 	for (int i = 0; i < 7; ++i)
 		kb *= kb;
 	d->fenv = 1.f;
@@ -600,6 +619,8 @@ HOT void drums_render(int master, int djfilter, int comp) {
 			}
 		}
 
+		if (d->hold && --d->hold == 0) // end of the hold: start the release
+			d->kt = d->kt_rel;
 		// per block: which parts run, and the live filter / drive / level
 		const int use_tone = d->osc != OSC_NONE && d->at > 1e-5f;
 		const int use_exc = d->an > 1e-5f;

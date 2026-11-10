@@ -12,6 +12,7 @@ enum EDrumModels {
 	DM_SAMPLE, // not synthesised: the lane plays its slice of the preset's sample on a Plinky voice
 	DM_KICK2, DM_CYMBAL, DM_RIM, DM_FM, DM_ZAP,
 	DM_GLITCH, DM_FOLD, DM_CLANG, DM_CHIRP, DM_CRUSH,
+	DM_BASS, // sustained bass note; its tune snaps to the preset's scale
 	DM_LAST
 };
 // order in which the Shape pad / encoder steps through the models
@@ -22,7 +23,7 @@ extern const char* const drum_model_names[DM_LAST];
 
 typedef struct DrumParams { // 14 bytes, stored per lane in the groove pattern
 	uint8_t model;  // EDrumModels
-	int8_t tune;    // -128..127 = -1..+1 octave
+	int8_t tune;    // -120..120 = -24..+24 semitones (5 per semitone)
 	uint8_t sweep;  // pitch envelope depth
 	uint8_t decay;
 	uint8_t snap;   // transient / noise amount (FM: modulation index)

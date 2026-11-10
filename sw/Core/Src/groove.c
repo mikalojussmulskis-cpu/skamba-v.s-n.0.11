@@ -364,15 +364,15 @@ static void compute_eff(int l) {
 			continue;
 		float delta = mod_value(m, l) * m->amount * (1.f / 127.f);
 		if (m->field == GF_TUNE) {
-			e->tune = clampi((int)e->tune + (int)(delta * 127.f), -128, 127);
+			e->tune = clampi((int)e->tune + (int)(delta * 120.f), -120, 120);
 			rnd_tune |= m->source == MOD_RND;
 		}
 		else
 			eb[m->field] = clampi((int)eb[m->field] + (int)(delta * 255.f), 0, 255);
 	}
-	if (rnd_tune) { // random pitch follows Plinky's scale (tune 0 = root)
-		int st = (e->tune * 12 + (e->tune >= 0 ? 64 : -64)) / 128;
-		e->tune = clampi((GrooveScaleQuantize(st) * 128) / 12, -128, 127);
+	if (rnd_tune || e->model == DM_BASS) { // random pitch, and bass notes, follow Plinky's scale (tune 0 = root)
+		int st = (e->tune + (e->tune >= 0 ? 2 : -2)) / 5;
+		e->tune = clampi(GrooveScaleQuantize(st) * 5, -120, 120);
 	}
 }
 
@@ -383,10 +383,11 @@ static void trigger_lane(int l, int vel, int step) {
 	lane_step[l] = step;
 	rnd_state = rnd_state * 1664525u + 1013904223u;
 	lane_rnd[l] = (s8)(rnd_state >> 24);
-	if (lane_mods(l, 0) || (step != NO_STEP && step_locks(l, step))) {
+	int bass = pat.lane[l].snd.model == DM_BASS; // its tune is snapped to the scale by compute_eff
+	if (bass || lane_mods(l, 0) || (step != NO_STEP && step_locks(l, step))) {
 		compute_eff(l);
 		drums_trigger(l, &lane_eff[l], vel);
-		if (lane_mods(l, 1)) eff_live |= bit; else eff_live &= ~bit;
+		if (bass || lane_mods(l, 1)) eff_live |= bit; else eff_live &= ~bit; // bass: edits still apply while the note holds
 	}
 	else {
 		drums_trigger(l, &pat.lane[l].snd, vel); // plain: follows edits live
@@ -610,7 +611,7 @@ void groove_set_field(int field, int value) {
 			pos = (maxi(value, 0) * DM_LAST) / 1024; // slider: absolute
 		b = drum_model_order[clampi(pos, 0, DM_LAST - 1)];
 		break; }
-	case GF_TUNE:  b = (u8)(s8)clampi(qdiv(value, curv, 8), -128, 127); break;
+	case GF_TUNE:  b = (u8)(s8)clampi(qdiv(value, curv, 8), -120, 120); break;
 	case GF_COLOR: b = clampi(qdiv(value + 1024, curv + 1024, 8), 0, 255); break;
 	default:       b = clampi(qdiv(value, curv, 4), 0, 255); break;
 	}
@@ -706,7 +707,7 @@ const char* groove_field_str(int field, char* buf) {
 	case GF_MODEL:
 		return drum_model_names[b < DM_LAST ? b : 0];
 	case GF_TUNE: { // semitones, one decimal
-		int st10 = ((s8)b * 120) / 128;
+		int st10 = (s8)b * 2;
 		sprintf(buf, "%c%d.%d", st10 < 0 ? '-' : '+', abs(st10) / 10, abs(st10) % 10);
 		return buf; }
 	case GF_FILTER:
