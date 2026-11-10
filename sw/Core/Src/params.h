@@ -879,7 +879,7 @@ static int groove_param_blocked(int p) {
 	}
 	return p == P_RVUNUSED;
 }
-_Static_assert(M_ENV == 1 && M_PRESSURE == 2 && M_A == 3 && M_Y == 6 && M_RND == 7 && SB_CLEAR == 5, "groove.c numbering");
+_Static_assert(M_ENV == 1 && M_PRESSURE == 2 && M_A == 3 && M_Y == 6 && M_RND == 7, "groove.c numbering");
 #endif
 
 int GetParam(u8 paramidx, u8 mod) {

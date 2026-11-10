@@ -641,3 +641,25 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 | Phase 6 default | 419,324 | **2,564** | 30,240 (+2,616 vs baseline) |
 
 **Flash is nearly full.** Next step before new features: compile third-party code (tinyusb, ST HAL) with `-Os`, only when `GROOVE_ENABLE`, so the `GROOVE=0` binary stays identical. Expected gain: several KB.
+
+**Phase 6 feedback**:
+- Parameter locks were awkward: with a step held you can't also hold a shift button to choose the param. The user asked to remove them; a simpler approach will come later.
+- Drum modulation works well. Drum volume is now good.
+- A Plinky-only param (microtone) was still reachable by switching Params pages on the Glide pad.
+- Bugs: random LED blinks (top row, left 4 columns), and step presses sometimes fired the drum of that column.
+
+### Phase 7: lock mode removed, touch fixes, flash recovered (done)
+- **Parameter locks removed**. Format v4 drops the lock pool (pattern 752 B); v3 patterns get their mod slots moved from offset 912 on load. Step pads toggle on press again.
+- **Drum pad hits need confirmation**: pressure > 120, and the same drum row on 2 consecutive string updates (4 ms).
+  - Fixes the random blinks: sensor-noise pressure blips at the last-known position, mostly row 1, fired full-velocity hits.
+  - Fixes the false drums on step presses: the first reading of a step press can land on a drum row.
+  - Light contact never sounds the Plinky voice on drum-model lanes either.
+- **Params page switch**: switching Params 1↔2 on a drum pad no longer lands on a Plinky-only param (e.g. Glide → Microtone).
+- **Flash**: in Groove builds, ST HAL and tinyusb are compiled `-Os` (not time critical; `GROOVE=0` keeps the original flags and binary). Together with the lock removal this frees ~6 KB.
+- Host test `groovetest/t2.c`: 10 checks (toggle, noise rejection, wrong-row first reading, row velocity, mods, v3→v4 migration, save/reload), all passing.
+- `GROOVE=0 FACTORY_TEST_JIG=1` is still byte-identical to v0.B4.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Baseline v0.B4 | 408,540 | 13,348 | 27,624 |
+| Phase 7 default | 413,280 | **8,608** | 29,960 (+2,336 vs baseline) |

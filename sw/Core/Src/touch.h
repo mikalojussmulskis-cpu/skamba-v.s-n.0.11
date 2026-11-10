@@ -367,7 +367,6 @@ void on_shift_down(void) {
 		break;
 	case SB_CLEAR: // delete/clear. TODO: hold down in preset mode to clear a pattern/sample/preset. in play mode, supress notes.
 		clearlatch();
-		if (GROOVE_GRID) groove_clear_pressed(); // GROOVE HOOK: remove the held step's parameter locks
 		break; 
 	case SB_PRESET:
 		editmode = EM_PRESET;
@@ -379,6 +378,9 @@ void on_shift_down(void) {
 		else
 			param_sticky = false;
 		if (edit_param<P_LAST && (edit_param %12)>=6) edit_param -=6;
+#if GROOVE_ENABLE
+		if (GROOVE_GRID && edit_param < P_LAST && groove_param_blocked(edit_param)) edit_param = P_LAST; // GROOVE HOOK
+#endif
 		editmode = EM_PARAMSA;
 		tapcount = 0;
 		break;
@@ -388,6 +390,9 @@ void on_shift_down(void) {
 		else
 			param_sticky = false;
 		if (edit_param<P_LAST && (edit_param % 12) < 6) edit_param += 6;
+#if GROOVE_ENABLE
+		if (GROOVE_GRID && edit_param < P_LAST && groove_param_blocked(edit_param)) edit_param = P_LAST; // GROOVE HOOK
+#endif
 		editmode = EM_PARAMSB;
 		break;
 	}

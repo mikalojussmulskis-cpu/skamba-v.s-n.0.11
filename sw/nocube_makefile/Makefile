@@ -150,6 +150,12 @@ ifeq ($(BUILD_TYPE), RELEASE)
 $(BUILD_DIR)/Core/Src/groove.o: CFLAGS := $(filter-out -O3,$(CFLAGS)) -Os
 # drums.c: -Os overall, its per-sample render passes are marked optimize("O2")
 $(BUILD_DIR)/Core/Src/drums.o: CFLAGS := $(filter-out -O3,$(CFLAGS)) -Os
+# Groove builds need the flash: third-party code (ST HAL, tinyusb) is not time
+# critical, so compile it for size. GROOVE=0 keeps the original flags (and binary).
+ifneq ($(GROOVE),0)
+$(BUILD_DIR)/Drivers/%.o: CFLAGS := $(filter-out -O3,$(CFLAGS)) -Os
+$(BUILD_DIR)/Core/Src/tinyusb/%.o: CFLAGS := $(filter-out -O3,$(CFLAGS)) -Os
+endif
 endif
 
 # Print build type
