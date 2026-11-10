@@ -893,7 +893,7 @@ void editmode_ui(void) {
 #if GROOVE_ENABLE
 			if (groove_field_for_param(pi) >= 0) { // GROOVE HOOK: drum lane / drum volume names
 				pn = groove_field_name(groove_field_for_param(pi));
-				if (ui_edit_mod == 0 && groove_field_for_param(pi) < GF_VOLUME)
+				if (ui_edit_mod == 0 && GROOVE_FIELD_IS_LANE(groove_field_for_param(pi)))
 					pagename = groove_lane_label();
 			}
 #endif

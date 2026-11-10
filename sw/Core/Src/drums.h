@@ -13,6 +13,7 @@ enum EDrumModels {
 	DM_KICK2, DM_CYMBAL, DM_RIM, DM_FM, DM_ZAP,
 	DM_GLITCH, DM_FOLD, DM_CLANG, DM_CHIRP, DM_CRUSH,
 	DM_BASS, // sustained bass note; its tune snaps to the preset's scale
+	DM_ACID, // acid line: saw / square through a resonant ladder filter with slides and accents (notes per step)
 	DM_LAST
 };
 // order in which the Shape pad / encoder steps through the models
@@ -24,18 +25,18 @@ extern const char* const drum_model_names[DM_LAST];
 typedef struct DrumParams { // 14 bytes, stored per lane in the groove pattern
 	uint8_t model;  // EDrumModels
 	int8_t tune;    // -120..120 = -24..+24 semitones (5 per semitone)
-	uint8_t sweep;  // pitch envelope depth
-	uint8_t decay;
-	uint8_t snap;   // transient / noise amount (FM: modulation index)
-	uint8_t tone;   // "colour": model specific (click tone, noise brightness, FM ratio, ...)
+	uint8_t sweep;  // pitch envelope depth (DM_ACID: slide time)
+	uint8_t decay;  // (DM_ACID: filter envelope decay)
+	uint8_t snap;   // transient / noise amount (FM: modulation index; DM_ACID: accent)
+	uint8_t tone;   // "colour": model specific (click tone, noise brightness, FM ratio, DM_ACID: saw -> square)
 	uint8_t drive;
 	uint8_t level;
 	uint8_t dlsend; // delay send
 	uint8_t rvsend; // reverb send
-	uint8_t filter; // resonant filter: 0..127 low-pass (cutoff), 128 off, 129..255 high-pass
+	uint8_t filter; // resonant filter: 0..127 low-pass (cutoff), 128 off, 129..255 high-pass (DM_ACID: ladder cutoff, 0..255)
 	uint8_t reso;   // filter resonance
 	uint8_t srr;    // sample rate reduction: 0 off .. 255 = 1/64 of the rate
-	uint8_t fenv;   // filter envelope: 128 off, >128 opens on the hit and closes, <128 starts closed and opens
+	uint8_t fenv;   // filter envelope: 128 off, >128 opens on the hit and closes, <128 starts closed and opens (DM_ACID: envelope depth)
 } DrumParams;
 
 // drum bus, filled by drums_render() every audio block
@@ -48,6 +49,10 @@ extern int16_t drum_bus_rv[DRUM_BLOCK / 2]; // reverb send, half rate
 // p must stay valid while the voice sounds: level, sends, drive and the filter
 // are read live every block, so turning them affects ringing hits.
 void drums_trigger(int lane, const DrumParams* p, int vel); // vel 1..7 (audio ISR)
+// sequenced note of a DM_ACID lane: gate = blocks the note is held (0 = 200 ms);
+// legato = the previous step was a slide: if that note still sounds, glide to the new pitch
+// instead of retriggering. Other models ignore gate and legato.
+void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato);
 // master volume 0..255; djfilter: global drum filter like the lane filter byte;
 // comp: drum bus compressor amount 0 (off) .. 255 (audio ISR)
 void drums_render(int master, int djfilter, int comp);

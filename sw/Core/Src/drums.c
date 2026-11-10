@@ -24,13 +24,14 @@
 
 #define SR 31250.f        // Plinky's audio sample rate (ACCURATE_FS)
 #define VOICES 6          // drum polyphony (kicks are never stolen)
-#define OUT_GAIN 24000.f  // at master volume 255 and lane level 255, before the x1.5 of the output soft clip
+#define OUT_GAIN 48000.f  // at master volume 255 and lane level 255 (the bus holds half of it, the output stage x3 with a soft knee)
+#define BUS_SCALE 0.5f    // voice -> bus: 6 dB headroom in the 16-bit bus before the output soft clip
 #define SILENT 5e-4f      // a voice stops below this amplitude (about -66 dB)
 #define PH32 4294967296.f // 2^32: phase scale of the metal oscillators
 #define SUB 32            // voices are rendered in sub-blocks of 32 samples (keeps the ISR stack small)
 
 const uint8_t drum_model_order[DM_LAST] = {
-	DM_KICK, DM_KICK2, DM_BASS, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_CYMBAL,
+	DM_KICK, DM_KICK2, DM_BASS, DM_ACID, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_CYMBAL,
 	DM_TOM, DM_RIM, DM_PERC, DM_FM, DM_CLANG, DM_ZAP, DM_CHIRP,
 	DM_FOLD, DM_GLITCH, DM_CRUSH, DM_SAMPLE,
 };
@@ -40,10 +41,10 @@ const char* const drum_model_names[DM_LAST] = {
 	[DM_CHAT] = "C.Hat", [DM_OHAT] = "O.Hat", [DM_CYMBAL] = "Cymbal", [DM_TOM] = "Tom",
 	[DM_RIM] = "Rim", [DM_PERC] = "Cowbell", [DM_FM] = "FM", [DM_ZAP] = "Zap", [DM_SAMPLE] = "Sample",
 	[DM_GLITCH] = "Glitch", [DM_FOLD] = "Fold", [DM_CLANG] = "Clang", [DM_CHIRP] = "Chirp", [DM_CRUSH] = "Crush",
-	[DM_BASS] = "Bass",
+	[DM_BASS] = "Bass", [DM_ACID] = "Acid",
 };
 
-enum { OSC_NONE, OSC_SINE, OSC_SINE2, OSC_FM, OSC_FOLD };
+enum { OSC_NONE, OSC_SINE, OSC_SINE2, OSC_FM, OSC_FOLD, OSC_ACID };
 enum { EF_OFF, EF_LP, EF_BP, EF_HP }; // excitation filter modes
 enum { EXC_NOISE, EXC_METAL };
 
@@ -63,13 +64,24 @@ typedef struct DrumVoice {
 	float at, kt;                  // tone amplitude and per-sample decay
 	float idx, ki;                 // FM index (in cycles) and its decay
 	// excitation
-	float an, kn, kn_tail, a0;     // amplitude, decay, decay after the clap bursts, burst level
-	float k1, z1;                  // one-pole high-pass (k1 = 0: bypass)
-	float ea1, ea2, ea3, ek, ez1, ez2; // 2-pole state-variable filter (coefficients, state)
-	float nmix;                    // metal: amount of white noise blended in
-	float mf;                      // metal: Hz -> 32-bit phase increment (includes tune)
+	float an, kn, kn_tail, a0;     // amplitude, decay, decay after the clap bursts, burst level (DM_ACID: full level of the attack)
 	const float* mtab;             // metal: oscillator frequencies
-	uint32_t mph[6];
+	union {
+		struct { // noise / metal excitation
+			float k1, z1;                  // one-pole high-pass (k1 = 0: bypass)
+			float ea1, ea2, ea3, ek, ez1, ez2; // 2-pole state-variable filter (coefficients, state)
+			float nmix;                    // metal: amount of white noise blended in
+			float mf;                      // metal: Hz -> 32-bit phase increment (includes tune)
+			uint32_t mph[6];
+		};
+		struct { // DM_ACID has no excitation: the same bytes hold its ladder filter, oscillator and glide
+			float y1, y2, y3, y4;          // ladder stages
+			float sq1, sq2;                // DPW saw oscillators: previous squared ramp values
+			float dph_t, gk;               // glide: target phase increment, per-sample coefficient
+			float env, kenv;               // filter envelope (1 -> 0; above 1 on accents) and its per-block decay
+			float g;                       // ladder coefficient at the end of the last block
+		};
+	};
 	// resonant filter state
 	float s1, s2;
 	float drv0;                    // built-in drive of the model
@@ -189,12 +201,36 @@ static int alloc_voice(int lane) {
 }
 
 void drums_trigger(int lane, const DrumParams* p, int vel) {
+	drums_note(lane, p, vel, 0, 0);
+}
+
+// DM_ACID: cutoff in Hz from the lane filter byte (60 Hz .. 5.8 kHz), slide time in seconds from sweep
+static float acid_cutoff(uint8_t filter) { return 60.f * fexp2(filter * (6.6f / 255.f)); }
+static float acid_env0(const DrumParams* p, int vel) { // filter envelope start: accents (full velocity) hit harder
+	const float n = p->snap * (1.f / 255.f);
+	return vel >= 7 ? 1.f + n * 0.6f : 1.f - n * 0.45f;
+}
+
+void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 	if (p->model == DM_SAMPLE || p->model >= DM_LAST)
 		return;
 	if (p->model == DM_CHAT) // a closed hat chokes open hats
 		for (int i = 0; i < VOICES; ++i)
 			if (dv[i].active && dv[i].model == DM_OHAT)
 				dv[i].kn = 0.995f;
+	if (!gate)
+		gate = (int)(0.2f * SR / DRUM_BLOCK);
+	if (p->model == DM_ACID && legato) // slide: the held note glides to the new pitch
+		for (int i = 0; i < VOICES; ++i) {
+			DrumVoice* d = &dv[i];
+			if (d->active && d->lane == lane && d->model == DM_ACID && d->hold) {
+				d->dph_t = 55.f * fexp2(p->tune * (1.f / 60.f)) / SR;
+				d->hold = gate;
+				float e0 = acid_env0(p, vel);
+				if (e0 > d->env) d->env = e0; // an accented slide pushes the filter again
+				return;
+			}
+		}
 
 	DrumVoice* d = &dv[alloc_voice(lane)];
 	const float last = d->active ? d->last : 0.f; // declick: where the replaced hit left off
@@ -424,6 +460,23 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		exc_filter(d, EF_HP, 1500.f, 0.7f);
 		d->drv0 = 0.4f;
 		break;
+	case DM_ACID: // 303 style: DPW saw -> square (colour), 4-pole ladder with envelope (decay, depth = Filter Env),
+		// accent (snap), glide between slid steps (sweep = slide time); held for the gate, 12 ms release
+		d->osc = OSC_ACID;
+		d->dph = d->dph_t = 55.f * t / SR;
+		d->gk = 1.f / (0.005f * fexp2(s * 6.3f) * SR); // slide 5 .. 400 ms
+		d->y3 = d->y4 = d->sq2 = 0.f;                  // (exc_filter above wrote these bytes as the noise filter)
+		d->sq1 = 1.f;                                  // ramp starts at -1 (squared: 1), the shifted one at 0
+		d->a0 = g * 1.5f;                              // the ladder takes the top off the saw: make up for it
+		d->at = g * 0.05f;
+		d->kt = 1.1f;                                  // 1 ms attack: grows until it reaches a0, then holds ...
+		d->kt_rel = kdecay(0.012f);                    // ... and releases after the gate
+		d->hold = (uint16_t)gate;
+		d->env = acid_env0(p, vel);
+		d->kenv = 1.f - 1.f / (erange(dec, 0.03f, 5.5f) * (SR / DRUM_BLOCK)); // 30 ms .. 1.4 s, per block
+		d->g = 1.f - fexp2(-9.0647f * acid_cutoff(p->filter) / SR);
+		d->drv0 = 0.2f;
+		break;
 	case DM_ZAP: // huge fast pitch sweep (colour = sweep time)
 		d->osc = OSC_SINE;
 		d->dph = 55.f * t / SR;
@@ -516,6 +569,41 @@ HOT static void pass_fold(DrumVoice* d, float* buf, int n) {
 		penv *= kp;
 	}
 	d->ph = ph; d->ph2 = ph2; d->penv = penv; d->at = at;
+}
+
+// DM_ACID: two DPW (differentiated parabolic) ramps make an alias-reduced saw and
+// square, mixed by wmix, into a 4-pole ladder (feedback kres, soft clipped) whose
+// coefficient ramps from the last block's g to g1; the amplitude envelope follows
+HOT static void pass_acid(DrumVoice* d, float* buf, int n, float g1, float kres, float wmix) {
+	float ph = d->ph, dph = d->dph, at = d->at, sq1 = d->sq1, sq2 = d->sq2;
+	float y1 = d->y1, y2 = d->y2, y3 = d->y3, y4 = d->y4, g = d->g;
+	const float dph_t = d->dph_t, gk = d->gk, kt = d->kt, amax = d->a0, dg = (g1 - g) * (1.f / SUB);
+	const float scale = 0.25f / dph; // DPW gain (the glide moves dph slowly: one value per sub-block is fine)
+	for (int i = 0; i < n; ++i) {
+		dph += (dph_t - dph) * gk;
+		ph += dph;
+		ph -= (float)(ph >= 1.f);
+		float p1 = 2.f * ph - 1.f, q1 = p1 * p1;
+		float ph2 = ph + 0.5f;
+		ph2 -= (float)(ph2 >= 1.f);
+		float p2 = 2.f * ph2 - 1.f, q2 = p2 * p2;
+		float saw = (q1 - sq1) * scale, saw2 = (q2 - sq2) * scale;
+		sq1 = q1; sq2 = q2;
+		float x = saw - saw2 * wmix; // saw .. saw - saw2 = square
+		float u = x - kres * y4;
+		u = u > 1.5f ? 1.5f : u < -1.5f ? -1.5f : u;
+		u -= 0.148148f * u * u * u;
+		y1 += g * (u - y1);
+		y2 += g * (y1 - y2);
+		y3 += g * (y2 - y3);
+		y4 += g * (y3 - y4);
+		g += dg;
+		buf[i] = y4 * at;
+		at *= kt;
+		at = at > amax ? amax : at;
+	}
+	d->ph = ph; d->dph = dph; d->at = at; d->sq1 = sq1; d->sq2 = sq2;
+	d->y1 = y1; d->y2 = y2; d->y3 = y3; d->y4 = y4; d->g = g1;
 }
 
 // noise or metal -> one-pole high-pass -> 2-pole filter -> amplitude, added to buf
@@ -629,14 +717,23 @@ HOT void drums_render(int master, int djfilter, int comp) {
 		int fmode = 0; // resonant filter: 0 off, 1 low-pass, 2 high-pass
 		float a1 = 0.f, a2 = 0.f, a3 = 0.f, k = 2.f;
 		int fb = p->filter;
-		if (p->fenv != DRUM_FILTER_OFF) { // filter envelope moves the cutoff; with the filter off it works on a low-pass
+		float acid_g = 0.f, acid_k = 0.f, acid_w = 0.f;
+		if (d->osc == OSC_ACID) { // the ladder replaces the lane filter: cutoff (live) * envelope (depth = fenv, live)
+			float fc = acid_cutoff(p->filter) * fexp2((p->fenv - DRUM_FILTER_OFF) * (5.f / 127.f) * d->env);
+			d->env *= d->kenv;
+			if (fc > 5000.f) fc = 5000.f;
+			acid_g = 1.f - fexp2(-9.0647f * fc / SR); // 1 - e^(-2 pi fc / SR)
+			acid_k = p->reso * (3.9f / 255.f);
+			acid_w = p->tone * (1.f / 255.f);
+		}
+		else if (p->fenv != DRUM_FILTER_OFF) { // filter envelope moves the cutoff; with the filter off it works on a low-pass
 			int amt = p->fenv - DRUM_FILTER_OFF;
 			if (fb > DRUM_FILTER_OFF - 5 && fb < DRUM_FILTER_OFF + 5) fb = DRUM_FILTER_OFF - 5;
 			float e = (amt > 0) ? 1.f - d->fenv : d->fenv;
 			fb = clampi_(fb - (int)(e * (amt > 0 ? amt : -amt)), 0, 255);
 			d->fenv *= d->fenv_k;
 		}
-		if (fb < DRUM_FILTER_OFF - 4 || fb > DRUM_FILTER_OFF + 4) {
+		if (d->osc != OSC_ACID && (fb < DRUM_FILTER_OFF - 4 || fb > DRUM_FILTER_OFF + 4)) {
 			fmode = fb < DRUM_FILTER_OFF ? 1 : 2;
 			float fc = (fmode == 1) ? 18000.f * fexp2((fb - DRUM_FILTER_OFF) * (9.f / 128.f)) // 35 Hz .. open
 			                        : 20.f * fexp2((fb - DRUM_FILTER_OFF) * (9.f / 127.f));   // 20 Hz .. 10 kHz
@@ -651,8 +748,8 @@ HOT void drums_render(int master, int djfilter, int comp) {
 		const float drv = d->drv0 + p->drive * (4.f / 255.f), dg = 1.f + drv;
 		float srr_rate = p->srr ? fexp2(p->srr * (-6.f / 255.f)) : 1.f;
 		if (d->srr0 < srr_rate) srr_rate = d->srr0;
-		const float gd = p->level * mg;
-		const float gdl = gd * p->dlsend * (0.25f / 255.f), grv = gd * p->rvsend * (0.25f / 255.f);
+		const float gd = p->level * mg * BUS_SCALE;
+		const float gdl = gd * p->dlsend * (0.5f / 255.f), grv = gd * p->rvsend * (0.5f / 255.f); // sends: full level (not BUS_SCALE)
 
 		for (int h = 0; h < DRUM_BLOCK; h += SUB) {
 			// 1) tone
@@ -660,6 +757,7 @@ HOT void drums_render(int master, int djfilter, int comp) {
 				if (d->osc == OSC_SINE) pass_sine(d, buf, SUB);
 				else if (d->osc == OSC_SINE2) pass_sine2(d, buf, SUB);
 				else if (d->osc == OSC_FOLD) pass_fold(d, buf, SUB);
+				else if (d->osc == OSC_ACID) pass_acid(d, buf, SUB, acid_g, acid_k, acid_w);
 				else pass_fm(d, buf, SUB);
 			}
 			else
@@ -757,7 +855,7 @@ HOT void drums_render(int master, int djfilter, int comp) {
 			int a = drum_bus_dry[i] < 0 ? -drum_bus_dry[i] : drum_bus_dry[i];
 			if (a > peak) peak = a;
 		}
-		const float thr = 32767.f * fexp2(comp * (-4.f / 255.f)); // 0 .. -24 dB
+		const float thr = 32767.f * BUS_SCALE * fexp2(comp * (-4.f / 255.f)); // 0 .. -24 dB (bus full scale = BUS_SCALE)
 		const float target = peak > thr ? thr / peak : 1.f;
 		if (target < comp_gain) comp_gain = target;
 		else comp_gain += (target - comp_gain) * 0.02f;
@@ -772,10 +870,12 @@ HOT void drums_render(int master, int djfilter, int comp) {
 	else
 		comp_gain = comp_out = 1.f;
 
-	// output: cubic soft clip (gain 1.5 for small signals, 1.0 at full scale), so
-	// stacked hits saturate smoothly instead of clipping hard
+	// output: the bus holds BUS_SCALE of the signal; a cubic soft clip with a 1.5x
+	// knee brings it to full scale (gain 3 for small signals, 1.0 beyond the knee),
+	// so stacked hits saturate smoothly instead of clipping hard
 	for (int i = 0; i < DRUM_BLOCK; ++i) {
-		const float x = drum_bus_dry[i] * (1.f / 32768.f);
-		drum_bus_dry[i] = (int16_t)((1.5f - 0.5f * x * x) * x * 32767.f);
+		float x = drum_bus_dry[i] * (1.5f / (32768.f * BUS_SCALE));
+		x = x > 1.5f ? 1.5f : x < -1.5f ? -1.5f : x;
+		drum_bus_dry[i] = (int16_t)((x - 0.148148f * x * x * x) * 32767.f);
 	}
 }

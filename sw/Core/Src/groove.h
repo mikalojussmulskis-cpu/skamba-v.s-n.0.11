@@ -60,10 +60,6 @@ void groove_reset(void); // transport reset (Prev while playing, MIDI start, ...
 int  groove_play_button(int plinky_playing);
 void groove_transport(int on); // MIDI / clock start, stop: both sequencers
 int  groove_play_led(int plinky_playing, int glow); // Play LED (drums in the grid, Plinky otherwise)
-// step condition editing (step lock mode, after a tap on the locked lane's mute pad):
-// encoder turns change the condition; selecting a param pad ends it
-int  groove_cond_turn(int delta);   // returns 1 when the turn was used
-void groove_cond_deselect(void);
 // finger_synth_update(), right after the touch is read (drum grid only):
 // live drum hits (row 1 = loudest .. row 5 = quietest, recorded when Record +
 // Play are on); swallows the touch so it doesn't play the Plinky voice
@@ -86,12 +82,15 @@ enum EGrooveFields { GF_MODEL, GF_TUNE, GF_SWEEP, GF_DECAY, GF_SNAP, GF_COLOR, G
 	GF_VOLUME,            // drum master volume (whole groove pattern)
 	GF_DJFILTER,          // global drum filter, DJ style (whole groove pattern)
 	GF_COMP,              // drum bus compressor (whole groove pattern)
-	GF_COND };            // step condition (only ever stored as a step lock)
+	GF_COND };            // step condition of the locked step (Arp / Seq order pads; stored as a step lock)
 // encoder click puts these back to the middle (off)
 #define GROOVE_FIELD_IS_FILTER(f) ((f) == GF_FILTER || (f) == GF_DJFILTER || (f) == GF_FENV)
+// fields of one lane (the OLED shows the lane / locked step), as opposed to the whole drum bus
+#define GROOVE_FIELD_IS_LANE(f) ((f) >= 0 && ((f) <= GF_FENV || (f) == GF_COND))
 int  groove_lock_active(void);              // step lock mode (long press on a step)
 void groove_lock_clear(void);               // encoder click in step lock mode
 int  GrooveScaleQuantize(int semitones);    // params.h: nearest note of Plinky's scale
+int  GrooveScaleDegree(int degree);         // params.h: semitones of the degree (0 = root, 7 = usually the octave)
 // value of a field of the selected lane, in param units (FULL = 1024)
 int  groove_get_field(int field);
 void groove_set_field(int field, int value);

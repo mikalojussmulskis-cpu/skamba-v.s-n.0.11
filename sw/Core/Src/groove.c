@@ -37,10 +37,13 @@
 #define GROOVE_PAGE 16
 #define NO_SLOT 255
 
-#define STEP_TRIG 0x80 // b7 trig, b4-6 velocity (0 = default), b0-3 chance (later)
+#define STEP_TRIG 0x80 // b7 trig, b4-6 velocity (0 = default), b3 slide and b0-2 note (Acid lanes)
 #define STEP_VEL_SHIFT 4
 #define STEP_VEL_MASK 7
+#define STEP_SLIDE 8      // Acid: glide into the next step's note (no retrigger)
+#define STEP_NOTE_MASK 7  // Acid: scale degree above the lane's tune
 #define VEL_DEFAULT 5
+#define ACID_SETTLE_MS 400 // the model choice must rest on Acid this long before notes are generated
 
 #define LANE_MUTE 1
 
@@ -149,8 +152,10 @@ static u32 rnd_state = 0x2545F491u;
 static u8 hit_row[GROOVE_LANES], hit_count[GROOVE_LANES]; // drum pad touch being confirmed
 static u8 lane_step[GROOVE_LANES];           // step that triggered the hit (NO_STEP: live)
 static u8 lock_step = NO_STEP, lock_lane;    // step lock mode: edits go to this step
-static u8 cond_edit;                         // step lock mode: the encoder sets the step condition
 static u8 lane_loop[GROOVE_LANES];           // times the lane has wrapped since the start (conditions)
+static u8 slide_from;                        // bitmask: the lane's last fired step was a slide (Acid)
+static u8 acid_gen;                          // lane + 1 whose model was just set to Acid (notes pending), 0 none
+static u32 acid_gen_ms;
 static u8 dj_eff = DRUM_FILTER_OFF;          // DJ filter after modulation
 
 static u8 pad_row[8] = { 255, 255, 255, 255, 255, 255, 255, 255 };
@@ -244,6 +249,8 @@ static void load_slot(int slot) {
 	cur_slot = slot;
 	memset(gate, 0, sizeof(gate));
 	skip_next = 0;
+	slide_from = 0;
+	acid_gen = 0;
 	eff_live = 0;
 	lock_step = NO_STEP;
 	if (clear_on_load) {
@@ -374,11 +381,13 @@ static void compute_eff(int l) {
 	DrumParams* e = &lane_eff[l];
 	*e = pat.lane[l].snd;
 	u8* eb = (u8*)e;
-	int rnd_tune = 0;
+	int rnd_tune = 0, tune_locked = 0;
 	if (lane_step[l] != NO_STEP)
 		for (int i = 0; i < pat.nlocks; ++i)
-			if (pat.lock[i].lane == l && pat.lock[i].step == lane_step[l] && pat.lock[i].field <= GF_FENV)
+			if (pat.lock[i].lane == l && pat.lock[i].step == lane_step[l] && pat.lock[i].field <= GF_FENV) {
 				eb[pat.lock[i].field] = pat.lock[i].value;
+				tune_locked |= pat.lock[i].field == GF_TUNE;
+			}
 	for (int i = 0; i < pat.nmods; ++i) {
 		GrooveMod* m = &pat.mod[i];
 		if (m->lane != l)
@@ -391,29 +400,63 @@ static void compute_eff(int l) {
 		else
 			eb[m->field] = clampi((int)eb[m->field] + (int)(delta * 255.f), 0, 255);
 	}
-	if (rnd_tune || e->model == DM_BASS) { // random pitch, and bass notes, follow Plinky's scale (tune 0 = root)
+	if (rnd_tune || e->model == DM_BASS || e->model == DM_ACID) { // random pitch, and bass / acid notes, follow Plinky's scale (tune 0 = root)
 		int st = (e->tune + (e->tune >= 0 ? 2 : -2)) / 5;
+		if (e->model == DM_ACID && lane_step[l] != NO_STEP && !tune_locked) // the step's note (a Tune lock replaces it)
+			st += GrooveScaleDegree(pat.step[l][lane_step[l]] & STEP_NOTE_MASK);
 		e->tune = clampi(GrooveScaleQuantize(st) * 5, -120, 120);
 	}
 }
 
-// trigger a drum lane; step = sequencer step (NO_STEP for live hits)
-static void trigger_lane(int l, int vel, int step) {
+// trigger a drum lane; step = sequencer step (NO_STEP for live hits);
+// gate / legato: Acid notes (see drums_note)
+static void trigger_lane(int l, int vel, int step, int gate, int legato) {
 	u8 bit = 1 << l;
 	lane_vel[l] = vel;
 	lane_step[l] = step;
 	rnd_state = rnd_state * 1664525u + 1013904223u;
 	lane_rnd[l] = (s8)(rnd_state >> 24);
-	int bass = pat.lane[l].snd.model == DM_BASS; // its tune is snapped to the scale by compute_eff
-	if (bass || lane_mods(l, 0) || (step != NO_STEP && step_locks(l, step))) {
+	int m = pat.lane[l].snd.model;
+	int note = m == DM_BASS || m == DM_ACID; // tune snapped to the scale (and the step's note) by compute_eff
+	if (note || lane_mods(l, 0) || (step != NO_STEP && step_locks(l, step))) {
 		compute_eff(l);
-		drums_trigger(l, &lane_eff[l], vel);
-		if (bass || lane_mods(l, 1)) eff_live |= bit; else eff_live &= ~bit; // bass: edits still apply while the note holds
+		drums_note(l, &lane_eff[l], vel, gate, legato);
+		if (note || lane_mods(l, 1)) eff_live |= bit; else eff_live &= ~bit; // notes: edits still apply while they hold
 	}
 	else {
-		drums_trigger(l, &pat.lane[l].snd, vel); // plain: follows edits live
+		drums_note(l, &pat.lane[l].snd, vel, gate, legato); // plain: follows edits live
 		eff_live &= ~bit;
 	}
+}
+
+// the lane's model was set to Acid: a new line. Steps get a note (scale degree,
+// mostly the root with steps and octave jumps), accents and slides; old locks of
+// the lane go (a Tune lock would replace the note). A lane that was never an
+// acid sound gets a starting sound.
+static void acid_generate(int l) {
+	DrumParams* d = &pat.lane[l].snd;
+	if (d->fenv == DRUM_FILTER_OFF) {
+		static const DrumParams acid_kit = { DM_ACID, 0, 60, 110, 150, 0, 50, 210, 0, 10, 110, 190, 0, 208 };
+		*d = acid_kit;
+	}
+	for (int i = pat.nlocks - 1; i >= 0; --i)
+		if (pat.lock[i].lane == l)
+			pat.lock[i] = pat.lock[--pat.nlocks];
+	int deg = 0;
+	for (int i = 0; i < GROOVE_STEPS; ++i) {
+		rnd_state = rnd_state * 1664525u + 1013904223u;
+		u32 r = rnd_state >> 8;
+		int trig = (i & 15) == 0 || (r & 255) < 168; // two thirds of the steps, always the first of a bar
+		int a = (r >> 8) & 255;
+		if (a < 80) deg = 0;      // back to the root ...
+		else if (a < 110) deg = 7; // ... up to the octave ...
+		else deg = clampi(deg + ((a & 1) ? 1 : -1) * (1 + ((a >> 1) & 1)), 0, 7); // ... or a degree or two away
+		int b = (r >> 16) & 255;
+		int acc = b < 70, sl = b >= 190; // accents on 27 %, slides on 25 %
+		pat.step[l][i] = trig ? STEP_TRIG | ((acc ? 7 : 6) << STEP_VEL_SHIFT) | (sl ? STEP_SLIDE : 0) | deg : 0;
+	}
+	mark_dirty();
+	ShowMessage(F_20_BOLD, "acid line", "new notes");
 }
 
 // ---------------------------------------------------------------------------
@@ -457,7 +500,6 @@ void groove_pad(int fi, int row, int trig, int pressure) {
 			else {
 				lock_step = idx;
 				lock_lane = lane_sel;
-				cond_edit = 0;
 				u8* s = &pat.step[lane_sel][idx];
 				if (!(*s & STEP_TRIG)) { // a locked step needs a hit
 					*s = STEP_TRIG | (hit_row[fi] << STEP_VEL_SHIFT);
@@ -472,12 +514,8 @@ void groove_pad_up(int fi) {
 	u8 bit = 1 << fi;
 	int row = pad_row[fi];
 	if (row == ROW_MUTE && !(pad_long & bit)) {
-		if (lock_step != NO_STEP && fi == lock_lane)
-			cond_edit = 1; // step lock mode: the locked lane's mute pad = edit the step condition
-		else {
-			pat.lane[fi].flags ^= LANE_MUTE;
-			mark_dirty();
-		}
+		pat.lane[fi].flags ^= LANE_MUTE;
+		mark_dirty();
 	}
 	else if (row >= ROW_STEPS && row < 8 && !(pad_long & bit)) { // short tap: toggle the step
 		int idx = page * GROOVE_PAGE + (row - ROW_STEPS) * 8 + fi;
@@ -493,20 +531,6 @@ void groove_pad_up(int fi) {
 		mark_dirty();
 	}
 	pad_row[fi] = 255;
-}
-
-int groove_cond_turn(int delta) {
-	if (!cond_edit || lock_step == NO_STEP)
-		return 0;
-	int i = find_lock(lock_lane, lock_step, GF_COND);
-	int c = clampi((i >= 0 ? pat.lock[i].value : 0) + (delta > 0 ? 1 : -1), 0, COND_LAST - 1);
-	set_lock(GF_COND, c);
-	mark_dirty();
-	return 1;
-}
-
-void groove_cond_deselect(void) {
-	cond_edit = 0;
 }
 
 int groove_lock_active(void) {
@@ -557,7 +581,7 @@ void groove_touch(int fi, int* pressure, int position) {
 					flash[fi] = 255;
 					int vel = row_vel[row]; // the row sets the velocity
 					if (synth)
-						trigger_lane(fi, vel, NO_STEP);
+						trigger_lane(fi, vel, NO_STEP, 0, 0);
 					live_record(fi, vel);
 				}
 			}
@@ -607,9 +631,15 @@ static u8 field_byte(int field) {
 	return ((u8*)&pat.lane[lane_sel].snd)[field];
 }
 
+static int cond_value(void) { // condition of the locked step
+	int i = lock_step != NO_STEP ? find_lock(lock_lane, lock_step, GF_COND) : -1;
+	return i >= 0 ? pat.lock[i].value : 0;
+}
+
 static int byte_to_value(int field, u8 b) {
 	switch (field) {
 	case GF_MODEL: return ((model_pos(b) * 2 + 1) * 1024) / (DM_LAST * 2);
+	case GF_COND:  return ((b * 2 + 1) * 1024) / (COND_LAST * 2);
 	case GF_TUNE:  return (s8)b * 8;
 	case GF_COLOR: return b * 8 - 1024; // on a signed pad (osc interval)
 	}
@@ -623,12 +653,31 @@ int groove_get_field(int field) {
 		return pat.djfilter * 4;
 	if (field == GF_COMP)
 		return pat.comp * 4;
+	if (field == GF_COND)
+		return byte_to_value(GF_COND, cond_value());
 	if (field < 0 || field > GF_FENV)
 		return 0;
 	return byte_to_value(field, field_byte(field));
 }
 
 void groove_set_field(int field, int value) {
+	if (field == GF_COND) { // condition of the locked step: encoder = one step per detent, slider = absolute
+		if (lock_step == NO_STEP) {
+			ShowMessage(F_16_BOLD, "Condition", "hold a step first");
+			return;
+		}
+		int c = cond_value(), curv = byte_to_value(GF_COND, c), nc;
+		if (millis() - lastencodertime < 50 && value != curv)
+			nc = c + (value > curv ? 1 : -1);
+		else
+			nc = (maxi(value, 0) * COND_LAST) / 1024;
+		nc = clampi(nc, 0, COND_LAST - 1);
+		if (nc == c)
+			return;
+		set_lock(GF_COND, nc);
+		mark_dirty();
+		return;
+	}
 	if (field >= GF_VOLUME) { // whole drum bus
 		u8* b = (field == GF_VOLUME) ? &pat.volume : (field == GF_DJFILTER) ? &pat.djfilter : &pat.comp;
 		if (field > GF_COMP) return;
@@ -660,8 +709,15 @@ void groove_set_field(int field, int value) {
 	if (lock_step != NO_STEP) // step lock mode: the value goes to the step
 		set_lock(field, b);
 	else {
-		if (field == GF_MODEL)
+		if (field == GF_MODEL) {
 			gate[lane_sel] = 0;
+			if (b == DM_ACID) { // new notes once the choice has settled (see groove_tick)
+				acid_gen = lane_sel + 1;
+				acid_gen_ms = millis();
+			}
+			else if (acid_gen == lane_sel + 1)
+				acid_gen = 0;
+		}
 		((u8*)&pat.lane[lane_sel].snd)[field] = b;
 	}
 	mark_dirty();
@@ -711,10 +767,11 @@ static const char* const field_names[] = {
 	[GF_SNAP] = "Snap", [GF_COLOR] = "Colour", [GF_DRIVE] = "Drive", [GF_LEVEL] = "Level",
 	[GF_DLSEND] = "Delay Send", [GF_RVSEND] = "Reverb Send", [GF_FILTER] = "Filter", [GF_RESO] = "Resonance",
 	[GF_SRR] = "Sample Rate", [GF_FENV] = "Filter Env", [GF_VOLUME] = "Drum Vol", [GF_DJFILTER] = "Drums Filter", [GF_COMP] = "Drum Comp",
+	[GF_COND] = "Condition",
 };
 
 const char* groove_field_name(int field) {
-	return (field >= 0 && field <= GF_COMP) ? field_names[field] : "";
+	return (field >= 0 && field <= GF_COND) ? field_names[field] : "";
 }
 
 const char* groove_lane_label(void) {
@@ -732,6 +789,8 @@ const char* groove_field_str(int field, char* buf) {
 		sprintf(buf, "%d", (pat.volume * 100 + 127) / 255);
 		return buf;
 	}
+	if (field == GF_COND)
+		return lock_step != NO_STEP ? cond_names[cond_value()] : "-";
 	u8 b = (field == GF_DJFILTER) ? pat.djfilter : (field == GF_COMP) ? pat.comp : field_byte(field);
 	switch (field) {
 	case GF_FENV:
@@ -751,6 +810,9 @@ const char* groove_field_str(int field, char* buf) {
 		sprintf(buf, "%c%d.%d", st10 < 0 ? '-' : '+', abs(st10) / 10, abs(st10) % 10);
 		return buf; }
 	case GF_FILTER:
+		if (pat.lane[lock_step != NO_STEP ? lock_lane : lane_sel].snd.model == DM_ACID)
+			break; // acid: plain cutoff 0..100
+		// fall through
 	case GF_DJFILTER:
 		if (b > DRUM_FILTER_OFF - 5 && b < DRUM_FILTER_OFF + 5)
 			return "Off";
@@ -857,24 +919,31 @@ static void fire(int l) {
 		return;
 	}
 	u8 s = pat.step[l][lane_pos[l]];
-	if (!(s & STEP_TRIG) || (pat.lane[l].flags & LANE_MUTE))
-		return;
 	int ci = find_lock(l, lane_pos[l], GF_COND);
-	if (ci >= 0 && !cond_ok(pat.lock[ci].value, l))
+	if (!(s & STEP_TRIG) || (pat.lane[l].flags & LANE_MUTE) || (ci >= 0 && !cond_ok(pat.lock[ci].value, l))) {
+		slide_from &= ~bit; // a rest ends a slide
 		return;
+	}
 	int vel = (s >> STEP_VEL_SHIFT) & STEP_VEL_MASK;
 	if (!vel)
 		vel = VEL_DEFAULT;
-	if (pat.lane[l].snd.model == DM_SAMPLE) {
+	int m = pat.lane[l].snd.model;
+	if (m == DM_SAMPLE) {
 		hit_vel[l] = vel;
 		gate[l] = gate_len;
 	}
+	else if (m == DM_ACID) { // notes: a slide step holds into the next step, which then glides to its note
+		int gate_blocks = (s & STEP_SLIDE) ? step_ticks_now * 5 / 4 : step_ticks_now * 11 / 20;
+		trigger_lane(l, vel, lane_pos[l], maxi(gate_blocks, 2), (slide_from & bit) != 0);
+		if (s & STEP_SLIDE) slide_from |= bit; else slide_from &= ~bit;
+	}
 	else
-		trigger_lane(l, vel, lane_pos[l]);
+		trigger_lane(l, vel, lane_pos[l], 0, 0);
 	flash[l] = 255;
 }
 
 static void restart_lanes(void) {
+	slide_from = 0;
 	for (int l = 0; l < GROOVE_LANES; ++l) {
 		lane_pos[l] = 0;
 		lane_loop[l] = 0;
@@ -949,6 +1018,12 @@ int groove_tick(int clock16, int playing, int step_ticks, int recording) {
 	// a "Sample" lane hit must end at least one string update (2 ticks) before
 	// the next step, so the next hit is seen as a new trigger
 	gate_len = clampi(mini(step_ticks / 2, 250), 2, maxi(2, step_ticks - 3));
+	if (acid_gen && millis() - acid_gen_ms > ACID_SETTLE_MS) { // the model choice rested on Acid: new notes
+		int l = acid_gen - 1;
+		acid_gen = 0;
+		if (pat.lane[l].snd.model == DM_ACID)
+			acid_generate(l);
+	}
 
 	// shared bar clock, and the starts waiting for it
 	if (clock16 && (playing || drums_play))
@@ -1090,8 +1165,6 @@ void groove_draw_leds(void) {
 		int k = muted ? 0 : 120;
 		if (fi == lane_sel)
 			k = muted ? 50 : 255;
-		if (lock_step != NO_STEP && fi == lock_lane && cond_edit) // editing the step condition
-			k = ((millis() >> 7) & 1) ? 255 : 40;
 		led_ram[fi][ROW_MUTE] = gamma8(k);
 
 		for (int y = ROW_STEPS; y < 8; ++y) {
@@ -1121,10 +1194,7 @@ void groove_draw_oled(void) {
 		int ci = find_lock(lock_lane, lock_step, GF_COND);
 		const char* cn = cond_names[ci >= 0 ? clampi(pat.lock[ci].value, 0, COND_LAST - 1) : 0];
 		fdrawstr(0, 0, F_16_BOLD, "Lock step %d", lock_step + 1);
-		if (cond_edit)
-			fdrawstr(0, 18, F_8, "condition: %s   (turn encoder)", cn);
-		else
-			fdrawstr(0, 18, F_8, "%d locked  cond %s  click=clear", n, cn);
+		fdrawstr(0, 18, F_8, "%d locked  cond %s  click=clear", n, cn);
 		return;
 	}
 	fdrawstr(0, 0, F_16_BOLD, "%d %s", lane_sel + 1, drum_model_names[sel->snd.model]);

@@ -737,3 +737,18 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 | Build | App flash used | Flash free | Static RAM |
 |---|---|---|---|
 | Phase 12 default | 402,904 | **18,984** | 30,516 |
+
+### Phase 13: drum level, conditions on the order pads, Acid line (done)
+- **Drum level +6 dB.** The drum bus now keeps 6 dB of headroom (`BUS_SCALE`) and the output stage is a soft-knee limiter (gain 3 for small signals, smooth up to a 1.5× knee, flat beyond) instead of the 16-bit hard clip followed by a 1.5× shaper. Default kit at master 128: kick −1.4 dBFS (was −6.4), hats −5 dBFS. Delay / reverb sends rise with it. The bus compressor threshold was rescaled so its setting means the same.
+- **Step conditions moved to the "order" pads.** In the drum grid, Shift A + **Arp** (order pad) and Shift B + **Seq** (order pad) select a **Condition** parameter; in step lock mode the encoder (one condition per detent) or the slider column sets the locked step's condition, and the OLED shows `Condition / Lock step N / 1:4` like any other drum parameter. Outside lock mode it shows `-` and asks to hold a step first. The mute-pad / cond_edit mechanism and its two edit.h hooks are gone. The other pads of the Arp / Seq rows are ignored silently in the grid (no "Plinky pads only" message there).
+- **Acid model** (`DM_ACID`, after Bass in the model order): two DPW (alias-reduced) ramps give a saw → square (Colour), into a 4-pole ladder filter with soft-clipped feedback (Filter = cutoff 60 Hz – 5.8 kHz, Resonance up to self-oscillation), a filter envelope (Decay = envelope time, Filter Env = depth, positive = classic sweep down), accents (Snap = accent contrast; full velocity = accent), slides (Glide/Sweep = slide time 5 – 400 ms), 1 ms attack, 12 ms release, built-in gain and a little drive. The ladder replaces the lane filter for this model; the voice's acid state overlays the unused noise / metal fields (union), so the voice table did not grow.
+- **Notes per step**: Acid lanes use the free low bits of the step byte: b0–2 = scale degree above the lane's Tune (0 = root … 7 = octave, through the preset's scale), b3 = slide (the note holds into the next step, which glides to its pitch without retriggering). A Tune lock on a step replaces its note. Live pad hits play the root. Step format unchanged (v6), old patterns load as before.
+- **Automatic line**: choosing Acid for a lane (Drum Type pad / encoder) generates a new 64-step line once the choice has rested on Acid for 400 ms (scrolling past it does nothing): two thirds of the steps play, the first step always, notes mostly around the root with octave jumps, 27 % accents, 25 % slides; the lane's old locks are removed. A lane that was never set up as an acid sound (Filter Env off) also gets a starting sound (cutoff 110, resonance 190, env depth +63 %, decay 110, accent 150, drive 50). Re-choose the engine (e.g. Bass → Acid) for a new line; a sound already set up is kept. Message: `acid line / new notes`.
+- Host tests: `t3.c` 16/16, `t4.c` 15/15, `t5.c` 20/20 (rewritten for the Condition param), new `t6.c` 14/14 (generation, settle delay, notes / slides / legato / Tune lock, live hit); drum labs: stability sweep 3,078 configs OK, robustness sweep 0 unstable, acid lab (no Nyquist oscillation at any cutoff / resonance, slide reaches the target pitch).
+- `GROOVE=0 FACTORY_TEST_JIG=1` still byte-identical to the baseline (SHA-1 55f8556d…).
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 12 default | 402,904 | 18,984 | 30,516 |
+| **Phase 13 default** | **405,620** | **16,268** | **30,524** |
+| Phase 13 STATS | 406,292 | 15,596 | 30,556 |

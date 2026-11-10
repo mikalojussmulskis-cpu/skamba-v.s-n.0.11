@@ -845,7 +845,7 @@ void SetPattern(u8 pattern, bool force) {
 // sensitivity = level, delay / reverb send, env2 level = filter (LP / off / HP),
 // resonance = filter resonance, column = sample rate reduction, decay2 = filter
 // envelope; HPF = filter on
-// all drums (DJ style). Params 2 + HPF pad (unprinted) = drum volume.
+// all drums (DJ style); arp / seq order = step condition. Params 2 + HPF pad (unprinted) = drum volume.
 static int groove_field_for_param(int p) {
 	if (p == P_SYS_UNUSED1 && GROOVE_IS_ON) return GF_VOLUME; // unprinted pad: drum master volume
 	if (p == P_RVUNUSED && GROOVE_IS_ON) return GF_COMP;      // unprinted pad: drum compressor
@@ -853,6 +853,7 @@ static int groove_field_for_param(int p) {
 	switch (p) {
 	case P_DLSEND: return GF_DLSEND;
 	case P_RVSEND: return GF_RVSEND;
+	case P_ARPMODE: case P_SEQMODE: return GF_COND; // the "order" pads: step condition (step lock mode)
 	case P_INTERVAL: return GF_COLOR;
 	case P_ENV_LEVEL: return GF_FILTER;
 	case P_MIXHPF: return GF_DJFILTER;
@@ -1268,5 +1269,10 @@ int GrooveScaleQuantize(int semis) {
 		if (dd < bestd) { bestd = dd; best = v; }
 	}
 	return oct * 12 + best;
+}
+int GrooveScaleDegree(int degree) {
+	int scale = param_eval_int(P_SCALE, any_rnd, env16, pressure16);
+	if (scale < 0 || scale >= S_LAST) scale = 0;
+	return (lookupscale(scale, degree) + 256) / 512;
 }
 #endif
