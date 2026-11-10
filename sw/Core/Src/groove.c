@@ -22,12 +22,12 @@
 #include "drums.h"
 
 // ---------------------------------------------------------------------------
-// Pattern data (format v4, see GROOVEBOX_PLAN.md section 5). One pattern = one
+// Pattern data (format v5, see GROOVEBOX_PLAN.md section 5). One pattern = one
 // 2 KB page of Plinky's flash store (logical index 136 + slot). Fields added
 // later go at the end; bytes that were never written read back as 0xFF.
 
 #define GROOVE_MAGIC 0x31565247u // "GRV1"
-#define GROOVE_VERSION 4 // v2: lane filter; v3: locks + modulation; v4: locks removed
+#define GROOVE_VERSION 5 // v2: lane filter; v3: locks + mods; v4: locks removed; v5: sample rate reduction, DJ filter
 #define GROOVE_MAX_MODS 24 // per pattern
 #define V3_MODS_OFFSET 912 // where v3 stored the modulation slots (after 64 locks)
 #define GROOVE_LANES 8
@@ -46,8 +46,7 @@ typedef struct GrooveLane { // 16 bytes
 	u8 length; // 1..64
 	u8 start;  // 0..63
 	u8 flags;  // LANE_MUTE
-	u8 rsv0;
-	DrumParams snd; // 12 bytes: model, tune, sweep, decay, snap, colour, drive, level, delay/reverb send, filter, reso
+	DrumParams snd; // 13 bytes: model, tune, sweep, decay, snap, colour, drive, level, delay/reverb send, filter, reso, srr
 } GrooveLane;
 
 // modulation slot: this field of this lane is modulated by this source
@@ -56,33 +55,34 @@ typedef struct GrooveMod { u8 lane, field, source; s8 amount; } GrooveMod;
 typedef struct GroovePattern { // 752 bytes
 	u32 magic;
 	u8 version, kit, preset_link, chain_next, nlocks_unused, swing_override;
-	u8 volume; // drum master volume
+	u8 volume;   // drum master volume
 	u8 nmods;
-	u8 rsv[4];
+	u8 djfilter; // global drum filter (DRUM_FILTER_OFF = off)
+	u8 rsv[3];
 	GrooveLane lane[GROOVE_LANES];
 	u8 step[GROOVE_LANES][GROOVE_STEPS];
 	GrooveMod mod[GROOVE_MAX_MODS];
 } GroovePattern;
-_Static_assert(sizeof(DrumParams) == 12, "drum params layout");
+_Static_assert(sizeof(DrumParams) == 13, "drum params layout");
 _Static_assert(sizeof(GrooveLane) == 16, "lane layout");
 _Static_assert(sizeof(GroovePattern) == 752, "pattern layout");
 // GF_MODEL..GF_RESO are the byte offsets of the fields inside DrumParams
 _Static_assert(__builtin_offsetof(DrumParams, model) == GF_MODEL && __builtin_offsetof(DrumParams, tone) == GF_COLOR
-	&& __builtin_offsetof(DrumParams, reso) == GF_RESO && sizeof(DrumParams) == GF_VOLUME, "field numbering");
+	&& __builtin_offsetof(DrumParams, srr) == GF_SRR && sizeof(DrumParams) == GF_VOLUME, "field numbering");
 _Static_assert((sizeof(GroovePattern) & 7) == 0, "flash writes are 8-byte units");
 
 #define VOLUME_DEFAULT 128
 
-// default kit                 model      tune sweep decay snap colour drive level  dly  rvb  filter reso
+// default kit                 model      tune sweep decay snap colour drive level  dly  rvb  filter       reso srr
 static const DrumParams default_kit[GROOVE_LANES] = {
-	{ DM_KICK,       0, 150, 100,  70, 110,  40, 230,   0,   0, DRUM_FILTER_OFF, 0 },
-	{ DM_SNARE,      0,  40,  90, 170, 150,   0, 200,   0,  13, DRUM_FILTER_OFF, 0 },
-	{ DM_CLAP,       0,   0, 100,   0, 130,   0, 200,   0,  20, DRUM_FILTER_OFF, 0 },
-	{ DM_CHAT,       0,   0,  50,  40, 140,   0, 170,   0,   0, DRUM_FILTER_OFF, 0 },
-	{ DM_OHAT,       0,   0, 110,  40, 140,   0, 150,   0,   7, DRUM_FILTER_OFF, 0 },
-	{ DM_TOM,      -40,  90, 120,  30,  60,   0, 210,   0,  10, DRUM_FILTER_OFF, 0 },
-	{ DM_RIM,        0,  20,  80, 120, 100,   0, 170,   0,  13, DRUM_FILTER_OFF, 0 },
-	{ DM_FM,         0,  30, 120, 110, 180,   0, 160,  70,  17, DRUM_FILTER_OFF, 0 },
+	{ DM_KICK,       0, 150, 133,  70, 110,  40, 230,   0,   0, DRUM_FILTER_OFF, 0, 0 },
+	{ DM_SNARE,      0,  40, 115, 130, 150,   0, 200,   0,  13, DRUM_FILTER_OFF, 0, 0 },
+	{ DM_CLAP,       0,   0, 112,   0, 130,   0, 200,   0,  20, DRUM_FILTER_OFF, 0, 0 },
+	{ DM_CHAT,       0,   0, 109,  40, 140,   0, 170,   0,   0, DRUM_FILTER_OFF, 0, 0 },
+	{ DM_OHAT,       0,   0, 146,  40, 140,   0, 150,   0,   7, DRUM_FILTER_OFF, 0, 0 },
+	{ DM_TOM,      -40,  90, 153,  30,  60,   0, 210,   0,  10, DRUM_FILTER_OFF, 0, 0 },
+	{ DM_RIM,        0,  20, 118, 120, 100,   0, 170,   0,  13, DRUM_FILTER_OFF, 0, 0 },
+	{ DM_FM,         0,  30, 148, 110, 180,   0, 160,  70,  17, DRUM_FILTER_OFF, 0, 0 },
 };
 
 // ---------------------------------------------------------------------------
@@ -180,6 +180,7 @@ static void default_pattern(void) {
 	pat.chain_next = 255;
 	pat.swing_override = 255;
 	pat.volume = VOLUME_DEFAULT;
+	pat.djfilter = DRUM_FILTER_OFF;
 	for (int l = 0; l < GROOVE_LANES; ++l) {
 		pat.lane[l].length = GROOVE_PAGE;
 		pat.lane[l].snd = default_kit[l];
@@ -191,6 +192,13 @@ static void load_slot(int slot) {
 	const GroovePattern* src = (const GroovePattern*)GetSavedGroovePattern(slot);
 	if (src && src->magic == GROOVE_MAGIC && src->version >= 1 && src->version <= GROOVE_VERSION) {
 		memcpy(&pat, src, sizeof(pat));
+		if (pat.version < 5) { // v1-v4: the lane sound started one byte later and had no srr; no DJ filter
+			for (int l = 0; l < GROOVE_LANES; ++l) {
+				memmove(&pat.lane[l].snd, (u8*)&pat.lane[l] + 4, 12);
+				pat.lane[l].snd.srr = 0;
+			}
+			pat.djfilter = DRUM_FILTER_OFF;
+		}
 		if (pat.version == 1) { // v1 -> v2: the filter bytes were reserved (0)
 			for (int l = 0; l < GROOVE_LANES; ++l) {
 				pat.lane[l].snd.filter = DRUM_FILTER_OFF;
@@ -454,18 +462,21 @@ static int byte_to_value(int field, u8 b) {
 int groove_get_field(int field) {
 	if (field == GF_VOLUME)
 		return pat.volume * 4;
-	if (field < 0 || field > GF_RESO)
+	if (field == GF_DJFILTER)
+		return pat.djfilter * 4;
+	if (field < 0 || field > GF_SRR)
 		return 0;
 	return byte_to_value(field, field_byte(field));
 }
 
 void groove_set_field(int field, int value) {
-	if (field == GF_VOLUME) {
-		pat.volume = clampi(qdiv(value, pat.volume * 4, 4), 0, 255);
+	if (field == GF_VOLUME || field == GF_DJFILTER) { // whole drum bus
+		u8* b = (field == GF_VOLUME) ? &pat.volume : &pat.djfilter;
+		*b = clampi(qdiv(value, *b * 4, 4), 0, 255);
 		mark_dirty();
 		return;
 	}
-	if (field < 0 || field > GF_RESO)
+	if (field < 0 || field > GF_SRR)
 		return;
 	u8 cur = field_byte(field);
 	int curv = byte_to_value(field, cur);
@@ -494,14 +505,14 @@ void groove_set_field(int field, int value) {
 
 // modulation amount of a field of the selected lane (param units: +-1016)
 int groove_get_mod(int field, int source) {
-	if (field <= GF_MODEL || field > GF_RESO)
+	if (field <= GF_MODEL || field > GF_SRR)
 		return 0;
 	int i = find_mod(lane_sel, field, source);
 	return i < 0 ? 0 : pat.mod[i].amount * 8;
 }
 
 void groove_set_mod(int field, int source, int value) {
-	if (field <= GF_MODEL || field > GF_RESO || source < MOD_ENV || source > MOD_RND)
+	if (field <= GF_MODEL || field > GF_SRR || source < MOD_ENV || source > MOD_RND)
 		return;
 	int i = find_mod(lane_sel, field, source);
 	int cur = i < 0 ? 0 : pat.mod[i].amount * 8;
@@ -532,11 +543,11 @@ static const char* const field_names[] = {
 	[GF_MODEL] = "Drum Type", [GF_TUNE] = "Tune", [GF_SWEEP] = "Pitch Sweep", [GF_DECAY] = "Decay",
 	[GF_SNAP] = "Snap", [GF_COLOR] = "Colour", [GF_DRIVE] = "Drive", [GF_LEVEL] = "Level",
 	[GF_DLSEND] = "Delay Send", [GF_RVSEND] = "Reverb Send", [GF_FILTER] = "Filter", [GF_RESO] = "Resonance",
-	[GF_VOLUME] = "Drum Vol",
+	[GF_SRR] = "Sample Rate", [GF_VOLUME] = "Drum Vol", [GF_DJFILTER] = "Drums Filter",
 };
 
 const char* groove_field_name(int field) {
-	return (field >= 0 && field <= GF_VOLUME) ? field_names[field] : "";
+	return (field >= 0 && field <= GF_DJFILTER) ? field_names[field] : "";
 }
 
 const char* groove_lane_label(void) {
@@ -551,8 +562,12 @@ const char* groove_field_str(int field, char* buf) {
 		sprintf(buf, "%d", (pat.volume * 100 + 127) / 255);
 		return buf;
 	}
-	u8 b = field_byte(field);
+	u8 b = (field == GF_DJFILTER) ? pat.djfilter : field_byte(field);
 	switch (field) {
+	case GF_SRR:
+		if (!b)
+			return "Off";
+		break;
 	case GF_MODEL:
 		return drum_model_names[b < DM_LAST ? b : 0];
 	case GF_TUNE: { // semitones, one decimal
@@ -560,6 +575,7 @@ const char* groove_field_str(int field, char* buf) {
 		sprintf(buf, "%c%d.%d", st10 < 0 ? '-' : '+', abs(st10) / 10, abs(st10) % 10);
 		return buf; }
 	case GF_FILTER:
+	case GF_DJFILTER:
 		if (b > DRUM_FILTER_OFF - 5 && b < DRUM_FILTER_OFF + 5)
 			return "Off";
 		if (b < DRUM_FILTER_OFF)
@@ -801,7 +817,7 @@ void groove_audio(void) {
 	for (int l = 0; l < GROOVE_LANES; ++l)
 		if (eff_live & (1 << l))
 			compute_eff(l);
-	drums_render(pat.volume);
+	drums_render(pat.volume, pat.djfilter);
 }
 
 // ---------------------------------------------------------------------------

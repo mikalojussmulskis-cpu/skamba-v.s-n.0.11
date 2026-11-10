@@ -69,6 +69,7 @@ typedef struct DrumVoice {
 	// resonant filter state
 	float s1, s2;
 	float drv0;                    // built-in drive of the model
+	float srr_acc, srr_hold;       // sample rate reduction state
 	uint32_t rng;
 	uint16_t clap_timer;
 	uint8_t clap_left, osc, exc, nmetal, emode, model, lane, active;
@@ -206,7 +207,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		d->penv = 0.2f + s * 7.f;
 		d->kp = kdecay(0.016f);
 		d->at = g;
-		d->kt = kdecay(erange(dec, 0.07f, 4.8f));
+		d->kt = kdecay(erange(dec, 0.025f, 6.5f));
 		d->an = g * n * 0.9f;
 		d->kn = kdecay(0.0025f);
 		d->k1 = kfilter(60.f);
@@ -220,7 +221,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		d->penv2 = 0.3f + c * 1.7f;
 		d->kp2 = kdecay(0.04f);
 		d->at = g;
-		d->kt = kdecay(erange(dec, 0.05f, 4.3f));
+		d->kt = kdecay(erange(dec, 0.02f, 5.8f));
 		d->an = g * n * 0.8f;
 		d->kn = kdecay(0.0012f);
 		d->k1 = kfilter(1800.f);
@@ -233,16 +234,16 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		d->mix2 = 0.35f;
 		d->penv = 0.15f + s * 1.5f;
 		d->kp = kdecay(0.01f);
-		d->at = g * (1.f - n * 0.6f);
-		d->kt = kdecay(erange(dec, 0.03f, 2.5f));
-		d->an = g * (0.4f + n * 1.0f);
-		d->kn = kdecay(erange(dec, 0.06f, 3.f));
+		d->at = g * (1.f - n * 0.5f);
+		d->kt = kdecay(erange(dec, 0.012f, 4.f));
+		d->an = g * (0.25f + n * 0.7f);
+		d->kn = kdecay(erange(dec, 0.02f, 4.6f));
 		exc_filter(d, EF_BP, 1500.f + c * 3500.f, 0.55f);
 		break;
 	case DM_CLAP: // four quick band-passed noise bursts and a tail
 		d->a0 = d->an = g * 1.8f;
 		d->kn = kdecay(0.006f);
-		d->kn_tail = kdecay(erange(dec, 0.07f, 3.8f));
+		d->kn_tail = kdecay(erange(dec, 0.025f, 5.4f));
 		d->clap_left = 3;
 		d->clap_timer = clap_gaps[3];
 		exc_filter(d, EF_BP, 1000.f + c * 1600.f, 1.4f);
@@ -259,7 +260,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 			d->k1 = kfilter(2000.f);
 			exc_filter(d, EF_HP, 4000.f + c * 4000.f, 0.7f);
 			d->an = g * 2.2f;
-			d->kn = kdecay(erange(dec, 0.3f, 3.3f));
+			d->kn = kdecay(erange(dec, 0.1f, 5.f));
 		}
 		else {
 			d->mtab = metal_hat;
@@ -267,7 +268,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 			d->k1 = kfilter(3000.f);
 			exc_filter(d, EF_HP, 5000.f + c * 3500.f, 0.9f);
 			d->an = g * 2.6f;
-			d->kn = (p->model == DM_CHAT) ? kdecay(erange(dec, 0.012f, 3.5f)) : kdecay(erange(dec, 0.08f, 3.4f));
+			d->kn = (p->model == DM_CHAT) ? kdecay(erange(dec, 0.004f, 5.3f)) : kdecay(erange(dec, 0.03f, 5.f));
 		}
 		break;
 	case DM_TOM: // pitch-dropping sine, optional fifth overtone (colour), stick noise
@@ -278,7 +279,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		d->penv = 0.1f + s * 2.5f;
 		d->kp = kdecay(0.04f);
 		d->at = g;
-		d->kt = kdecay(erange(dec, 0.06f, 4.3f));
+		d->kt = kdecay(erange(dec, 0.02f, 6.f));
 		d->an = g * n * 0.6f;
 		d->kn = kdecay(0.004f);
 		exc_filter(d, EF_BP, 1500.f, 0.7f);
@@ -291,7 +292,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		d->penv = s * 0.5f;
 		d->kp = kdecay(0.004f);
 		d->at = g;
-		d->kt = kdecay(erange(dec, 0.005f, 3.2f));
+		d->kt = kdecay(erange(dec, 0.002f, 5.f));
 		d->an = g * (0.2f + n * 0.6f);
 		d->kn = kdecay(0.0015f);
 		exc_filter(d, EF_HP, 2500.f, 0.7f);
@@ -304,18 +305,18 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		d->nmix = n * 0.3f;
 		exc_filter(d, EF_BP, 800.f + c * 1600.f, 0.9f);
 		d->an = g * 1.1f;
-		d->kn = kdecay(erange(dec, 0.035f, 3.8f));
+		d->kn = kdecay(erange(dec, 0.012f, 5.5f));
 		break;
 	case DM_FM: // two-operator FM: colour = ratio (bell, metal, wood), snap = index
 		d->osc = OSC_FM;
 		d->dph = 190.f * t / SR;
 		d->dph2 = d->dph * fm_ratios[(int)(c * 7.99f)];
 		d->idx = 0.05f + n * 1.4f;
-		d->ki = kdecay(erange(dec, 0.015f, 4.f) * 0.7f);
+		d->ki = kdecay(erange(dec, 0.006f, 5.4f) * 0.7f);
 		d->penv = s * 2.f;
 		d->kp = kdecay(0.03f);
 		d->at = g;
-		d->kt = kdecay(erange(dec, 0.04f, 5.f));
+		d->kt = kdecay(erange(dec, 0.015f, 6.5f));
 		break;
 	case DM_ZAP: // huge fast pitch sweep (colour = sweep time)
 		d->osc = OSC_SINE;
@@ -323,7 +324,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		d->penv = 3.f + s * 55.f;
 		d->kp = kdecay(0.003f + c * 0.07f);
 		d->at = g;
-		d->kt = kdecay(erange(dec, 0.02f, 4.5f));
+		d->kt = kdecay(erange(dec, 0.008f, 6.f));
 		d->an = g * n * 0.3f;
 		d->kn = kdecay(0.003f);
 		exc_filter(d, EF_HP, 1000.f, 0.7f);
@@ -436,7 +437,24 @@ HOT static void pass_excitation(DrumVoice* d, float* buf, int n) {
 	d->z1 = z1; d->ez1 = s1; d->ez2 = s2; d->an = an;
 }
 
-HOT void drums_render(int master) {
+// global drum filter (DJ style) on the bus: dry at full rate, sends at half rate
+static float dj_s[3][2];
+static void dj_filter_pass(int16_t* x, int n, float* st, float a1, float a2, float a3, float k, float cl) {
+	float s1 = st[0], s2 = st[1];
+	const float ch = 1.f - cl;
+	for (int i = 0; i < n; ++i) {
+		float in = x[i];
+		float v3 = in - s2;
+		float v1 = a1 * s1 + a2 * v3;
+		float v2 = s2 + a2 * s1 + a3 * v3;
+		s1 = 2.f * v1 - s1;
+		s2 = 2.f * v2 - s2;
+		x[i] = sat16((int32_t)(cl * v2 + ch * (in - k * v1 - v2)));
+	}
+	st[0] = s1; st[1] = s2;
+}
+
+HOT void drums_render(int master, int djfilter) {
 	memset(drum_bus_dry, 0, sizeof(drum_bus_dry));
 	memset(drum_bus_dl, 0, sizeof(drum_bus_dl));
 	memset(drum_bus_rv, 0, sizeof(drum_bus_rv));
@@ -480,6 +498,7 @@ HOT void drums_render(int master) {
 		}
 		const float cl = (fmode == 1) ? 1.f : 0.f, ch = 1.f - cl;
 		const float drv = d->drv0 + p->drive * (4.f / 255.f), dg = 1.f + drv;
+		const float srr_rate = p->srr ? fexp2(p->srr * (-6.f / 255.f)) : 1.f;
 		const float gd = p->level * mg;
 		const float gdl = gd * p->dlsend * (0.25f / 255.f), grv = gd * p->rvsend * (0.25f / 255.f);
 
@@ -516,7 +535,20 @@ HOT void drums_render(int master) {
 					x = x > 1.5f ? 1.5f : x < -1.5f ? -1.5f : x;
 					buf[i] = x - 0.148148f * x * x * x;
 				}
-			// 5) mix into the drum bus
+			// 5) sample rate reduction (live): sample & hold at a lower rate
+			if (srr_rate < 1.f) {
+				float acc = d->srr_acc, hold = d->srr_hold;
+				for (int i = 0; i < SUB; ++i) {
+					acc += srr_rate;
+					if (acc >= 1.f) {
+						acc -= 1.f;
+						hold = buf[i];
+					}
+					buf[i] = hold;
+				}
+				d->srr_acc = acc; d->srr_hold = hold;
+			}
+			// 6) mix into the drum bus
 			int16_t* dry = drum_bus_dry + h;
 			for (int i = 0; i < SUB; ++i)
 				dry[i] = sat16(dry[i] + (int32_t)(buf[i] * gd));
@@ -534,4 +566,21 @@ HOT void drums_render(int master) {
 		if (d->at < SILENT && d->an < SILENT && !d->clap_left)
 			d->active = 0;
 	}
+	if (djfilter < DRUM_FILTER_OFF - 4 || djfilter > DRUM_FILTER_OFF + 4) {
+		int lp = djfilter < DRUM_FILTER_OFF;
+		float fc = lp ? 18000.f * fexp2((djfilter - DRUM_FILTER_OFF) * (8.f / 128.f)) // 70 Hz .. open
+		              : 20.f * fexp2((djfilter - DRUM_FILTER_OFF) * (9.f / 127.f));   // 20 Hz .. 10 kHz
+		if (fc > 13000.f) fc = 13000.f;
+		const float k = 1.2f; // a little resonance, like a DJ mixer
+		float g = tanpade(3.14159265f * fc / SR);
+		float a1 = 1.f / (1.f + g * (g + k)), a2 = g * a1, a3 = g * a2;
+		dj_filter_pass(drum_bus_dry, DRUM_BLOCK, dj_s[0], a1, a2, a3, k, (float)lp);
+		g = tanpade(3.14159265f * fc * 2.f / SR); // sends run at half rate
+		if (fc * 2.f > 13000.f) g = tanpade(3.14159265f * 13000.f / SR);
+		a1 = 1.f / (1.f + g * (g + k)); a2 = g * a1; a3 = g * a2;
+		dj_filter_pass(drum_bus_dl, DRUM_BLOCK / 2, dj_s[1], a1, a2, a3, k, (float)lp);
+		dj_filter_pass(drum_bus_rv, DRUM_BLOCK / 2, dj_s[2], a1, a2, a3, k, (float)lp);
+	}
+	else
+		memset(dj_s, 0, sizeof(dj_s));
 }

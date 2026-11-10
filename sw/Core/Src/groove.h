@@ -68,7 +68,10 @@ extern int groove_rv_in; // drum reverb send for the current Reverb2() call
 enum EGrooveFields { GF_MODEL, GF_TUNE, GF_SWEEP, GF_DECAY, GF_SNAP, GF_COLOR, GF_DRIVE, GF_LEVEL,
 	GF_DLSEND, GF_RVSEND, // delay / reverb send of the selected lane
 	GF_FILTER, GF_RESO,   // resonant filter of the selected lane
-	GF_VOLUME };          // drum master volume (whole groove pattern)
+	GF_SRR,               // sample rate reduction of the selected lane
+	GF_VOLUME,            // drum master volume (whole groove pattern)
+	GF_DJFILTER };        // global drum filter, DJ style (whole groove pattern)
+#define GROOVE_FIELD_IS_FILTER(f) ((f) == GF_FILTER || (f) == GF_DJFILTER)
 // value of a field of the selected lane, in param units (FULL = 1024)
 int  groove_get_field(int field);
 void groove_set_field(int field, int value);

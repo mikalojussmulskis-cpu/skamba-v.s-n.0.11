@@ -893,7 +893,7 @@ void editmode_ui(void) {
 #if GROOVE_ENABLE
 			if (groove_field_for_param(pi) >= 0) { // GROOVE HOOK: drum lane / drum volume names
 				pn = groove_field_name(groove_field_for_param(pi));
-				if (ui_edit_mod == 0 && groove_field_for_param(pi) != GF_VOLUME)
+				if (ui_edit_mod == 0 && groove_field_for_param(pi) < GF_VOLUME)
 					pagename = groove_lane_label();
 			}
 #endif
@@ -1187,7 +1187,8 @@ void editmode_ui(void) {
 				ainlvl = clampi((ainlvl * (32 - delay)) >> (6), 0, 255); // fade out
 				k = maxi(k, ainlvl);
 			}
-			led_ram[fi][y] = led_gamma(k);
+			if (!(GROOVE_GRID && editmode == EM_PLAY)) // GROOVE HOOK: the drum grid draws these
+				led_ram[fi][y] = led_gamma(k);
 		}
 	}
 	if (GROOVE_GRID && editmode == EM_PLAY) groove_draw_leds(); // GROOVE HOOK

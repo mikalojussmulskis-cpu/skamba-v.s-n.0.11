@@ -182,6 +182,11 @@ void finger_editing(int fi, int frame) {
 				}
 				if (!encbtn && prevencbtn && encbtndowntime<=50) {
 					int deflt = (edit_mod) ? 0 : init_params.params[pi][0];
+#if GROOVE_ENABLE
+					if (!edit_mod && GROOVE_FIELD_IS_FILTER(groove_field_for_param(pi)))
+						cur = 512; // GROOVE HOOK: click = filter off (middle, DRUM_FILTER_OFF * 4)
+					else
+#endif
 					if (deflt != 0) {
 						if (cur != deflt) cur = deflt; else cur = 0;
 					}
@@ -437,7 +442,8 @@ void finger_editing(int fi, int frame) {
 				if (edit_param != old && edit_param < P_LAST) {
 #if GROOVE_ENABLE
 					if (groove_field_for_param(edit_param) >= 0) // GROOVE HOOK: drum lane names
-						ShowMessage(F_20_BOLD, groove_field_name(groove_field_for_param(edit_param)), groove_lane_label());
+						ShowMessage(F_20_BOLD, groove_field_name(groove_field_for_param(edit_param)),
+							groove_field_for_param(edit_param) < GF_VOLUME ? groove_lane_label() : "all drums");
 					else
 #endif
 					ShowMessage(F_20_BOLD, paramnames[edit_param], pagenames[edit_param / 6]);

@@ -663,3 +663,13 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 |---|---|---|---|
 | Baseline v0.B4 | 408,540 | 13,348 | 27,624 |
 | Phase 7 default | 413,280 | **8,608** | 29,960 (+2,336 vs baseline) |
+
+**Phase 7 feedback**: stats v7 = cpu 82 % average, peak 92 % (109 % since boot = start-up spike), free stack 872 B (corrected measure). Touch on the steps is much better; some random LED blinks remain.
+
+### Phase 8: decay ranges, drum filters, sample rate reduction, LED fix (done)
+- **LED blinks**: `editmode_ui` drew Plinky's play-mode LEDs (including the normal sequencer's loop and playhead on the top row) before the drum grid overwrote them. The LED refresh interrupt sometimes showed the in-between state. Those writes are now skipped while the drum grid shows.
+- **Decay ranges** are wider on every model (shorter at 0, a bit longer at max). Snare is less noisy and shorter. Default decays were re-tuned (the kick keeps its length).
+- **Lane filter** moved to the **Env2 Level** pad. The **HPF pad** is now a **global drum DJ filter** (`pat.djfilter`, LP ← off → HP, mild resonance) on the dry drums and both sends. An encoder click resets either filter to off.
+- **Sample rate reduction** per lane (`DrumParams.srr`, sample & hold down to 1/64 rate) on the **Column** pad. Live, and can be modulated.
+- **Format v5**: `DrumParams` is 13 bytes (srr), the lane sound starts at lane offset 3, and the header has `djfilter`. v1–v4 patterns are migrated on load.
+- Host test `t2.c`: 14 checks, all passing. Filter stability sweep OK.
