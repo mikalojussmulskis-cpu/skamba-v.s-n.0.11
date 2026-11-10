@@ -152,6 +152,7 @@ void finger_editing(int fi, int frame) {
 				groove_lock_clear(); // GROOVE HOOK: click in step lock mode clears the step's locks
 				pi = P_LAST;
 			}
+			if (GROOVE_GRID && ev && groove_cond_turn(ev)) pi = P_LAST; // GROOVE HOOK: encoder sets the step condition
 #endif
 			if ((pi < P_LAST) && (editmode == EM_PLAY || editmode == EM_PARAMSA || editmode == EM_PARAMSB)
 #if GROOVE_ENABLE
@@ -449,6 +450,7 @@ void finger_editing(int fi, int frame) {
 					edit_param = P_LAST;
 				if (edit_param != old && edit_param < P_LAST) {
 #if GROOVE_ENABLE
+					if (GROOVE_GRID) groove_cond_deselect(); // GROOVE HOOK: a param pad takes the encoder back
 					if (groove_field_for_param(edit_param) >= 0) // GROOVE HOOK: drum lane names
 						ShowMessage(F_20_BOLD, groove_field_name(groove_field_for_param(edit_param)),
 							groove_field_for_param(edit_param) < GF_VOLUME ? groove_lane_label() : "all drums");

@@ -60,6 +60,10 @@ void groove_reset(void); // transport reset (Prev while playing, MIDI start, ...
 int  groove_play_button(int plinky_playing);
 void groove_transport(int on); // MIDI / clock start, stop: both sequencers
 int  groove_play_led(int plinky_playing, int glow); // Play LED (drums in the grid, Plinky otherwise)
+// step condition editing (step lock mode, after a tap on the locked lane's mute pad):
+// encoder turns change the condition; selecting a param pad ends it
+int  groove_cond_turn(int delta);   // returns 1 when the turn was used
+void groove_cond_deselect(void);
 // finger_synth_update(), right after the touch is read (drum grid only):
 // live drum hits (row 1 = loudest .. row 5 = quietest, recorded when Record +
 // Play are on); swallows the touch so it doesn't play the Plinky voice
@@ -81,7 +85,8 @@ enum EGrooveFields { GF_MODEL, GF_TUNE, GF_SWEEP, GF_DECAY, GF_SNAP, GF_COLOR, G
 	GF_FENV,              // filter envelope of the selected lane
 	GF_VOLUME,            // drum master volume (whole groove pattern)
 	GF_DJFILTER,          // global drum filter, DJ style (whole groove pattern)
-	GF_COMP };            // drum bus compressor (whole groove pattern)
+	GF_COMP,              // drum bus compressor (whole groove pattern)
+	GF_COND };            // step condition (only ever stored as a step lock)
 // encoder click puts these back to the middle (off)
 #define GROOVE_FIELD_IS_FILTER(f) ((f) == GF_FILTER || (f) == GF_DJFILTER || (f) == GF_FENV)
 int  groove_lock_active(void);              // step lock mode (long press on a step)

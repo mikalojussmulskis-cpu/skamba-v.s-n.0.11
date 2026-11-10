@@ -723,3 +723,17 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 | Build | App flash used | Flash free | Static RAM |
 |---|---|---|---|
 | Phase 11 default | 421,028 | **860** | 30,460 |
+
+### Phase 12: flash recovery, Bass model, step conditions (done)
+- **Flash recovery**: in Groove builds, `calib.h`, `edit.h`, `webusb.h` and `ui.h` are compiled `-Os` (`#pragma GCC optimize` around the includes in `plinky.c`), and `main.c`, `lis2dh12_reg.c`, `stm32l4xx_hal_msp.c` get `-Os` in the Makefile. None of this is DSP. `GROOVE=0` keeps the original flags and stays byte-identical. Freed about 19 KB. The steady "P8 1/16" OLED line in the drum grid was dropped (only `>bar` while waiting and the record mark remain).
+- **Bass model** (`DM_BASS`, appended; the Tom stays): wavefolded sine (Colour = harmonics) that **holds** for the Decay time (30 ms – 1.4 s) then releases in 20 ms; Sweep = punch, Snap = click, built-in drive. Its Tune is **snapped to the preset's scale** at every hit (and the lane follows live edits while a note holds). Step-locking Tune sequences a bass line.
+- **Tune range** for all drums is now **−24 … +24 semitones**, stored as 5 units per semitone (−120 … 120). Existing patterns with a non-zero Tune sound 2× further from the root than before (old ±1 octave was 128 units).
+- **Step conditions**, stored as a step lock with the pseudo-field `GF_COND` (0 = always = no lock; 48 locks shared with parameter locks):
+  - In step lock mode, **tap the locked lane's mute pad** (the bright one): the pad blinks and the encoder now sets the condition. Selecting any param pad gives the encoder back.
+  - always, 25 %, 50 %, 75 %, 1:2, 2:2, 1:3, 2:3, 3:3, 1:4 … 4:4, 1st (first loop only), not 1st. A:B counts the lane's own loops since the transport started.
+  - The OLED shows `Lock step N` / `condition: 1:4`; encoder click clears all of the step's locks including the condition.
+- Host tests: `t3.c` 16/16 (incl. bass snapping), `t4.c` 15/15, new `t5.c` (conditions) 20/20; stability sweep 2,916 configs OK.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 12 default | 402,904 | **18,984** | 30,516 |
