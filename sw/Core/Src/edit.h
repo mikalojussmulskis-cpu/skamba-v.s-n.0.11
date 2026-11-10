@@ -145,6 +145,12 @@ void finger_editing(int fi, int frame) {
 			encval -= ev << 2;
 			int pi = edit_param;
 			if (pi >= P_LAST) pi = last_edit_param;
+#if GROOVE_ENABLE
+			if (GROOVE_GRID && groove_lock_active() && !encbtn && prevencbtn && encbtndowntime <= 50) {
+				groove_lock_clear(); // GROOVE HOOK: click in step lock mode clears the step's locks
+				pi = P_LAST;
+			}
+#endif
 			if ((pi < P_LAST) && (editmode == EM_PLAY || editmode == EM_PARAMSA || editmode == EM_PARAMSB)
 #if GROOVE_ENABLE
 				&& !(GROOVE_GRID && groove_param_blocked(pi)) // GROOVE HOOK

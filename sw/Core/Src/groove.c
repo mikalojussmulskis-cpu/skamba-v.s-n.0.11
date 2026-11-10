@@ -22,13 +22,15 @@
 #include "drums.h"
 
 // ---------------------------------------------------------------------------
-// Pattern data (format v5, see GROOVEBOX_PLAN.md section 5). One pattern = one
+// Pattern data (format v6, see GROOVEBOX_PLAN.md section 5). One pattern = one
 // 2 KB page of Plinky's flash store (logical index 136 + slot). Fields added
 // later go at the end; bytes that were never written read back as 0xFF.
 
 #define GROOVE_MAGIC 0x31565247u // "GRV1"
-#define GROOVE_VERSION 5 // v2: lane filter; v3: locks + mods; v4: locks removed; v5: sample rate reduction, DJ filter
-#define GROOVE_MAX_MODS 24 // per pattern
+#define GROOVE_VERSION 6 // v2 filter; v3 locks+mods; v4 no locks; v5 srr, DJ filter; v6 filter env, step locks
+#define GROOVE_MAX_MODS 24  // per pattern
+#define GROOVE_MAX_LOCKS 48 // per pattern
+#define LANE_ALL 8          // modulation slots for the whole drum bus (DJ filter)
 #define V3_MODS_OFFSET 912 // where v3 stored the modulation slots (after 64 locks)
 #define GROOVE_LANES 8
 #define GROOVE_STEPS 64
@@ -44,17 +46,18 @@
 
 typedef struct GrooveLane { // 16 bytes
 	u8 length; // 1..64
-	u8 start;  // 0..63
 	u8 flags;  // LANE_MUTE
-	DrumParams snd; // 13 bytes: model, tune, sweep, decay, snap, colour, drive, level, delay/reverb send, filter, reso, srr
+	DrumParams snd; // 14 bytes: model, tune, sweep, decay, snap, colour, drive, level, sends, filter, reso, srr, fenv
 } GrooveLane;
 
+// step lock: on this step of this lane, this field has this value
+typedef struct GrooveLock { u8 step, lane, field, value; } GrooveLock;
 // modulation slot: this field of this lane is modulated by this source
 typedef struct GrooveMod { u8 lane, field, source; s8 amount; } GrooveMod;
 
-typedef struct GroovePattern { // 752 bytes
+typedef struct GroovePattern { // 944 bytes
 	u32 magic;
-	u8 version, kit, preset_link, chain_next, nlocks_unused, swing_override;
+	u8 version, kit, preset_link, chain_next, nlocks, swing_override;
 	u8 volume;   // drum master volume
 	u8 nmods;
 	u8 djfilter; // global drum filter (DRUM_FILTER_OFF = off)
@@ -63,27 +66,28 @@ typedef struct GroovePattern { // 752 bytes
 	GrooveLane lane[GROOVE_LANES];
 	u8 step[GROOVE_LANES][GROOVE_STEPS];
 	GrooveMod mod[GROOVE_MAX_MODS];
+	GrooveLock lock[GROOVE_MAX_LOCKS];
 } GroovePattern;
-_Static_assert(sizeof(DrumParams) == 13, "drum params layout");
+_Static_assert(sizeof(DrumParams) == 14, "drum params layout");
 _Static_assert(sizeof(GrooveLane) == 16, "lane layout");
-_Static_assert(sizeof(GroovePattern) == 752, "pattern layout");
+_Static_assert(sizeof(GroovePattern) == 944, "pattern layout");
 // GF_MODEL..GF_RESO are the byte offsets of the fields inside DrumParams
 _Static_assert(__builtin_offsetof(DrumParams, model) == GF_MODEL && __builtin_offsetof(DrumParams, tone) == GF_COLOR
-	&& __builtin_offsetof(DrumParams, srr) == GF_SRR && sizeof(DrumParams) == GF_VOLUME, "field numbering");
+	&& __builtin_offsetof(DrumParams, fenv) == GF_FENV && sizeof(DrumParams) == GF_VOLUME, "field numbering");
 _Static_assert((sizeof(GroovePattern) & 7) == 0, "flash writes are 8-byte units");
 
 #define VOLUME_DEFAULT 128
 
 // default kit                 model      tune sweep decay snap colour drive level  dly  rvb  filter       reso srr
 static const DrumParams default_kit[GROOVE_LANES] = {
-	{ DM_KICK,       0, 150, 133,  70, 110,  40, 230,   0,   0, DRUM_FILTER_OFF, 0, 0 },
-	{ DM_SNARE,      0,  40, 115, 130, 150,   0, 200,   0,  13, DRUM_FILTER_OFF, 0, 0 },
-	{ DM_CLAP,       0,   0, 112,   0, 130,   0, 200,   0,  20, DRUM_FILTER_OFF, 0, 0 },
-	{ DM_CHAT,       0,   0, 109,  40, 140,   0, 170,   0,   0, DRUM_FILTER_OFF, 0, 0 },
-	{ DM_OHAT,       0,   0, 146,  40, 140,   0, 150,   0,   7, DRUM_FILTER_OFF, 0, 0 },
-	{ DM_TOM,      -40,  90, 153,  30,  60,   0, 210,   0,  10, DRUM_FILTER_OFF, 0, 0 },
-	{ DM_RIM,        0,  20, 118, 120, 100,   0, 170,   0,  13, DRUM_FILTER_OFF, 0, 0 },
-	{ DM_FM,         0,  30, 148, 110, 180,   0, 160,  70,  17, DRUM_FILTER_OFF, 0, 0 },
+	{ DM_KICK,       0, 150, 133,  70, 110,  40, 230,   0,   0, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
+	{ DM_SNARE,      0,  40, 115, 130, 150,   0, 200,   0,  13, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
+	{ DM_CLAP,       0,   0, 112,   0, 130,   0, 200,   0,  20, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
+	{ DM_CHAT,       0,   0, 109,  40, 140,   0, 170,   0,   0, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
+	{ DM_OHAT,       0,   0, 146,  40, 140,   0, 150,   0,   7, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
+	{ DM_TOM,      -40,  90, 153,  30,  60,   0, 210,   0,  10, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
+	{ DM_RIM,        0,  20, 118, 120, 100,   0, 170,   0,  13, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
+	{ DM_FM,         0,  30, 148, 110, 180,   0, 160,  70,  17, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
 };
 
 // ---------------------------------------------------------------------------
@@ -93,7 +97,7 @@ static const DrumParams default_kit[GROOVE_LANES] = {
 #define ROW_STEPS 6 // R7, R8: 16 steps of the selected lane
 #define LONGPRESS_MS 400
 #define NO_TOUCH (-2048) // TOUCH_MIN_PRES
-static const u8 row_vel[DRUM_ROWS] = { 7, 5, 4, 3, 2 }; // 100, 71, 57, 43, 29 %
+static const u8 row_vel[DRUM_ROWS] = { 7, 5, 4, 2, 1 }; // 100, 50, 30, 8, 3 % (see vel_gain in drums.c)
 
 // ---------------------------------------------------------------------------
 // From plinky.c (unity build globals)
@@ -102,6 +106,7 @@ extern int lastencodertime;
 extern int mod_cur[8];   // Plinky modulation sources (16.16): knob/CV/LFO A, B, X, Y ...
 // modulation sources, numbered like Plinky's EModSources (checked in params.h)
 enum { MOD_ENV = 1, MOD_PRESSURE, MOD_A, MOD_B, MOD_X, MOD_Y, MOD_RND };
+#define NO_STEP 255
 #define HIT_PRESSURE 120 // a drum pad needs at least this much pressure (ignores sensor noise)
 #define HIT_CONFIRM 2    // ...on the same row for this many string updates (4 ms apart)
 void clearlatch(void);
@@ -140,6 +145,9 @@ static u8 eff_live;                // lanes whose hit follows knobs / LFOs every
 static u32 rnd_state = 0x2545F491u;
 
 static u8 hit_row[GROOVE_LANES], hit_count[GROOVE_LANES]; // drum pad touch being confirmed
+static u8 lane_step[GROOVE_LANES];           // step that triggered the hit (NO_STEP: live)
+static u8 lock_step = NO_STEP, lock_lane;    // step lock mode: edits go to this step
+static u8 dj_eff = DRUM_FILTER_OFF;          // DJ filter after modulation
 
 static u8 pad_row[8] = { 255, 255, 255, 255, 255, 255, 255, 255 };
 static u32 pad_time[8];
@@ -193,12 +201,17 @@ static void load_slot(int slot) {
 	const GroovePattern* src = (const GroovePattern*)GetSavedGroovePattern(slot);
 	if (src && src->magic == GROOVE_MAGIC && src->version >= 1 && src->version <= GROOVE_VERSION) {
 		memcpy(&pat, src, sizeof(pat));
-		if (pat.version < 5) { // v1-v4: the lane sound started one byte later and had no srr; no DJ filter
+		if (pat.version < 6) { // old lanes: length, start, flags, (pad,) sound; no srr before v5, no filter env
 			for (int l = 0; l < GROOVE_LANES; ++l) {
-				memmove(&pat.lane[l].snd, (u8*)&pat.lane[l] + 4, 12);
-				pat.lane[l].snd.srr = 0;
+				u8 old[16];
+				memcpy(old, &pat.lane[l], 16);
+				pat.lane[l].flags = old[2];
+				memcpy(&pat.lane[l].snd, old + (pat.version < 5 ? 4 : 3), pat.version < 5 ? 12 : 13);
+				if (pat.version < 5) pat.lane[l].snd.srr = 0;
+				pat.lane[l].snd.fenv = DRUM_FILTER_OFF;
 			}
-			pat.djfilter = DRUM_FILTER_OFF;
+			if (pat.version < 5) pat.djfilter = DRUM_FILTER_OFF;
+			pat.nlocks = 0;
 		}
 		if (pat.version == 1) { // v1 -> v2: the filter bytes were reserved (0)
 			for (int l = 0; l < GROOVE_LANES; ++l) {
@@ -211,13 +224,12 @@ static void load_slot(int slot) {
 		else if (pat.version == 3) // v3 -> v4: the 64 locks are dropped, the mod slots move up
 			memcpy(pat.mod, (const u8*)src + V3_MODS_OFFSET, sizeof(pat.mod));
 		pat.version = GROOVE_VERSION;
-		pat.nlocks_unused = 0;
 		if (pat.nmods > GROOVE_MAX_MODS) pat.nmods = 0;
+		if (pat.nlocks > GROOVE_MAX_LOCKS) pat.nlocks = 0;
 		for (int l = 0; l < GROOVE_LANES; ++l) { // never trust flash blindly
 			GrooveLane* ln = &pat.lane[l];
-			ln->start &= GROOVE_STEPS - 1;
-			if (ln->length < 1 || ln->start + ln->length > GROOVE_STEPS)
-				ln->length = mini(GROOVE_PAGE, GROOVE_STEPS - ln->start);
+			if (ln->length < 1 || ln->length > GROOVE_STEPS)
+				ln->length = GROOVE_PAGE;
 			if (ln->snd.model >= DM_LAST)
 				ln->snd.model = DM_KICK;
 		}
@@ -228,6 +240,7 @@ static void load_slot(int slot) {
 	memset(gate, 0, sizeof(gate));
 	skip_next = 0;
 	eff_live = 0;
+	lock_step = NO_STEP;
 	if (clear_on_load) {
 		clear_on_load = 0;
 		default_pattern();
@@ -248,6 +261,7 @@ void groove_init(void) {
 
 void groove_toggle(void) {
 	stop_sound();
+	lock_step = NO_STEP;
 	groove_active = !groove_active;
 	groove_grid = groove_active;
 	if (groove_active)
@@ -261,6 +275,7 @@ void groove_view_toggle(void) {
 		return;
 	}
 	groove_grid = !groove_grid;
+	lock_step = NO_STEP;
 	ShowMessage(F_20_BOLD, groove_grid ? "drum pads" : "plinky pads", 0);
 }
 
@@ -274,6 +289,46 @@ static int find_mod(int lane, int field, int source) {
 	return -1;
 }
 
+static int find_lock(int lane, int step, int field) {
+	for (int i = 0; i < pat.nlocks; ++i)
+		if (pat.lock[i].step == step && pat.lock[i].lane == lane && pat.lock[i].field == field)
+			return i;
+	return -1;
+}
+
+static int step_locks(int lane, int step) {
+	int n = 0;
+	for (int i = 0; i < pat.nlocks; ++i)
+		n += pat.lock[i].step == step && pat.lock[i].lane == lane;
+	return n;
+}
+
+static void clear_step_locks(int lane, int step) {
+	for (int i = pat.nlocks - 1; i >= 0; --i)
+		if (pat.lock[i].step == step && pat.lock[i].lane == lane)
+			pat.lock[i] = pat.lock[--pat.nlocks];
+}
+
+static void set_lock(int field, u8 value) {
+	int i = find_lock(lock_lane, lock_step, field);
+	if (value == ((u8*)&pat.lane[lock_lane].snd)[field]) { // same as the lane: no lock needed
+		if (i >= 0)
+			pat.lock[i] = pat.lock[--pat.nlocks];
+		return;
+	}
+	if (i < 0) {
+		if (pat.nlocks >= GROOVE_MAX_LOCKS) {
+			ShowMessage(F_20_BOLD, "locks full", 0);
+			return;
+		}
+		i = pat.nlocks++;
+		pat.lock[i].step = lock_step;
+		pat.lock[i].lane = lock_lane;
+		pat.lock[i].field = field;
+	}
+	pat.lock[i].value = value;
+}
+
 static int lane_mods(int lane, int live_only) {
 	for (int i = 0; i < pat.nmods; ++i)
 		if (pat.mod[i].lane == lane && (!live_only || (pat.mod[i].source >= MOD_A && pat.mod[i].source <= MOD_Y)))
@@ -281,36 +336,51 @@ static int lane_mods(int lane, int live_only) {
 	return 0;
 }
 
-// lane sound + modulation -> lane_eff[l]
+static float mod_value(GrooveMod* m, int l) {
+	switch (m->source) {
+	case MOD_PRESSURE: return lane_vel[l] * (1.f / 7.f); // touch / step velocity
+	case MOD_A: case MOD_B: case MOD_X: case MOD_Y: return clampf(mod_cur[m->source] * (1.f / 65536.f), -1.f, 1.f);
+	case MOD_RND: return (m->amount > 0) ? (lane_rnd[l] + 128) * (1.f / 255.f) : lane_rnd[l] * (1.f / 127.f);
+	}
+	return 0.f;
+}
+
+// lane sound + the step's locks + modulation -> lane_eff[l]
 static void compute_eff(int l) {
 	DrumParams* e = &lane_eff[l];
 	*e = pat.lane[l].snd;
 	u8* eb = (u8*)e;
+	int rnd_tune = 0;
+	if (lane_step[l] != NO_STEP)
+		for (int i = 0; i < pat.nlocks; ++i)
+			if (pat.lock[i].lane == l && pat.lock[i].step == lane_step[l])
+				eb[pat.lock[i].field] = pat.lock[i].value;
 	for (int i = 0; i < pat.nmods; ++i) {
 		GrooveMod* m = &pat.mod[i];
 		if (m->lane != l)
 			continue;
-		float src = 0.f;
-		switch (m->source) {
-		case MOD_PRESSURE: src = lane_vel[l] * (1.f / 7.f); break; // touch / step velocity
-		case MOD_A: case MOD_B: case MOD_X: case MOD_Y: src = clampf(mod_cur[m->source] * (1.f / 65536.f), -1.f, 1.f); break;
-		case MOD_RND: src = (m->amount > 0) ? (lane_rnd[l] + 128) * (1.f / 255.f) : lane_rnd[l] * (1.f / 127.f); break;
-		}
-		float delta = src * m->amount * (1.f / 127.f);
-		if (m->field == GF_TUNE)
+		float delta = mod_value(m, l) * m->amount * (1.f / 127.f);
+		if (m->field == GF_TUNE) {
 			e->tune = clampi((int)e->tune + (int)(delta * 127.f), -128, 127);
+			rnd_tune |= m->source == MOD_RND;
+		}
 		else
 			eb[m->field] = clampi((int)eb[m->field] + (int)(delta * 255.f), 0, 255);
 	}
+	if (rnd_tune) { // random pitch follows Plinky's scale (tune 0 = root)
+		int st = (e->tune * 12 + (e->tune >= 0 ? 64 : -64)) / 128;
+		e->tune = clampi((GrooveScaleQuantize(st) * 128) / 12, -128, 127);
+	}
 }
 
-// trigger a drum lane
-static void trigger_lane(int l, int vel) {
+// trigger a drum lane; step = sequencer step (NO_STEP for live hits)
+static void trigger_lane(int l, int vel, int step) {
 	u8 bit = 1 << l;
 	lane_vel[l] = vel;
+	lane_step[l] = step;
 	rnd_state = rnd_state * 1664525u + 1013904223u;
 	lane_rnd[l] = (s8)(rnd_state >> 24);
-	if (lane_mods(l, 0)) {
+	if (lane_mods(l, 0) || (step != NO_STEP && step_locks(l, step))) {
 		compute_eff(l);
 		drums_trigger(l, &lane_eff[l], vel);
 		if (lane_mods(l, 1)) eff_live |= bit; else eff_live &= ~bit;
@@ -347,32 +417,69 @@ void groove_pad(int fi, int row, int trig, int pressure) {
 			ShowMessage(F_20_BOLD, lane_names[fi], drum_model_names[pat.lane[fi].snd.model]);
 		}
 	}
-	else if (row >= ROW_STEPS && row < 8 && trig) {
-		pad_row[fi] = row;
+	else if (row >= ROW_STEPS && row < 8) {
 		int idx = page * GROOVE_PAGE + (row - ROW_STEPS) * 8 + fi;
-		u8* s = &pat.step[lane_sel][idx];
-		if (*s & STEP_TRIG)
-			*s = 0;
-		else
-			*s = STEP_TRIG | (vel_from_pressure(pressure) << STEP_VEL_SHIFT);
-		mark_dirty();
+		if (trig) {
+			pad_row[fi] = row;
+			pad_time[fi] = millis();
+			pad_long &= ~bit;
+			hit_row[fi] = vel_from_pressure(pressure); // velocity for the toggle on release
+		}
+		else if (pad_row[fi] == row && !(pad_long & bit) && millis() - pad_time[fi] > LONGPRESS_MS) {
+			pad_long |= bit; // long press: enter / leave step lock mode for this step
+			if (lock_step == idx && lock_lane == lane_sel)
+				lock_step = NO_STEP;
+			else {
+				lock_step = idx;
+				lock_lane = lane_sel;
+				u8* s = &pat.step[lane_sel][idx];
+				if (!(*s & STEP_TRIG)) { // a locked step needs a hit
+					*s = STEP_TRIG | (hit_row[fi] << STEP_VEL_SHIFT);
+					mark_dirty();
+				}
+			}
+		}
 	}
 }
 
 void groove_pad_up(int fi) {
-	if (pad_row[fi] == ROW_MUTE && !(pad_long & (1 << fi))) {
+	u8 bit = 1 << fi;
+	int row = pad_row[fi];
+	if (row == ROW_MUTE && !(pad_long & bit)) {
 		pat.lane[fi].flags ^= LANE_MUTE;
+		mark_dirty();
+	}
+	else if (row >= ROW_STEPS && row < 8 && !(pad_long & bit)) { // short tap: toggle the step
+		int idx = page * GROOVE_PAGE + (row - ROW_STEPS) * 8 + fi;
+		u8* s = &pat.step[lane_sel][idx];
+		if (*s & STEP_TRIG) {
+			*s = 0;
+			clear_step_locks(lane_sel, idx);
+			if (lock_step == idx && lock_lane == lane_sel)
+				lock_step = NO_STEP;
+		}
+		else
+			*s = STEP_TRIG | (hit_row[fi] << STEP_VEL_SHIFT);
 		mark_dirty();
 	}
 	pad_row[fi] = 255;
 }
 
+int groove_lock_active(void) {
+	return lock_step != NO_STEP;
+}
+
+// encoder click in step lock mode: remove the step's locks
+void groove_lock_clear(void) {
+	clear_step_locks(lock_lane, lock_step);
+	mark_dirty();
+	ShowMessage(F_20_BOLD, "locks cleared", 0);
+}
+
 static int next_pos(int l) {
 	GrooveLane* ln = &pat.lane[l];
 	int p = lane_pos[l] + 1;
-	if (p >= ln->start + ln->length || p >= GROOVE_STEPS)
-		p = ln->start;
-	return p;
+	return (p >= ln->length || p >= GROOVE_STEPS) ? 0 : p;
 }
 
 // Record + Play: write a live hit onto the nearest step
@@ -401,11 +508,12 @@ void groove_touch(int fi, int* pressure, int position) {
 			else if (hit_count[fi] && hit_row[fi] == row) {
 				if (++hit_count[fi] >= HIT_CONFIRM) {
 					live_down |= bit;
-					lane_sel = fi;
+					if (lock_step == NO_STEP) // in step lock mode the lane stays put
+						lane_sel = fi;
 					flash[fi] = 255;
 					int vel = row_vel[row]; // the row sets the velocity
 					if (synth)
-						trigger_lane(fi, vel);
+						trigger_lane(fi, vel, NO_STEP);
 					live_record(fi, vel);
 				}
 			}
@@ -446,8 +554,12 @@ static int qdiv(int value, int cur, int scale) {
 	return q;
 }
 
-// stored byte of a field of the selected lane
+// stored byte of a field of the selected lane (the lock of the step in lock mode)
 static u8 field_byte(int field) {
+	if (lock_step != NO_STEP) {
+		int i = find_lock(lock_lane, lock_step, field);
+		return i >= 0 ? pat.lock[i].value : ((u8*)&pat.lane[lock_lane].snd)[field];
+	}
 	return ((u8*)&pat.lane[lane_sel].snd)[field];
 }
 
@@ -467,7 +579,7 @@ int groove_get_field(int field) {
 		return pat.djfilter * 4;
 	if (field == GF_COMP)
 		return pat.comp * 4;
-	if (field < 0 || field > GF_SRR)
+	if (field < 0 || field > GF_FENV)
 		return 0;
 	return byte_to_value(field, field_byte(field));
 }
@@ -480,7 +592,7 @@ void groove_set_field(int field, int value) {
 		mark_dirty();
 		return;
 	}
-	if (field < 0 || field > GF_SRR)
+	if (field < 0 || field > GF_FENV)
 		return;
 	u8 cur = field_byte(field);
 	int curv = byte_to_value(field, cur);
@@ -501,24 +613,31 @@ void groove_set_field(int field, int value) {
 	}
 	if (b == cur)
 		return;
-	if (field == GF_MODEL)
-		gate[lane_sel] = 0;
-	((u8*)&pat.lane[lane_sel].snd)[field] = b;
+	if (lock_step != NO_STEP) // step lock mode: the value goes to the step
+		set_lock(field, b);
+	else {
+		if (field == GF_MODEL)
+			gate[lane_sel] = 0;
+		((u8*)&pat.lane[lane_sel].snd)[field] = b;
+	}
 	mark_dirty();
 }
 
 // modulation amount of a field of the selected lane (param units: +-1016)
 int groove_get_mod(int field, int source) {
-	if (field <= GF_MODEL || field > GF_SRR)
+	if ((field <= GF_MODEL || field > GF_FENV) && field != GF_DJFILTER)
 		return 0;
-	int i = find_mod(lane_sel, field, source);
+	int i = find_mod(field == GF_DJFILTER ? LANE_ALL : lane_sel, field, source);
 	return i < 0 ? 0 : pat.mod[i].amount * 8;
 }
 
 void groove_set_mod(int field, int source, int value) {
-	if (field <= GF_MODEL || field > GF_SRR || source < MOD_ENV || source > MOD_RND)
+	if ((field <= GF_MODEL || field > GF_FENV) && field != GF_DJFILTER)
 		return;
-	int i = find_mod(lane_sel, field, source);
+	if (source < MOD_ENV || source > MOD_RND)
+		return;
+	int lane = field == GF_DJFILTER ? LANE_ALL : lane_sel;
+	int i = find_mod(lane, field, source);
 	int cur = i < 0 ? 0 : pat.mod[i].amount * 8;
 	int a = clampi(qdiv(value, cur, 8), -127, 127);
 	if (i >= 0 && a == pat.mod[i].amount)
@@ -534,7 +653,7 @@ void groove_set_mod(int field, int source, int value) {
 				return;
 			}
 			i = pat.nmods++;
-			pat.mod[i].lane = lane_sel;
+			pat.mod[i].lane = lane;
 			pat.mod[i].field = field;
 			pat.mod[i].source = source;
 		}
@@ -547,7 +666,7 @@ static const char* const field_names[] = {
 	[GF_MODEL] = "Drum Type", [GF_TUNE] = "Tune", [GF_SWEEP] = "Pitch Sweep", [GF_DECAY] = "Decay",
 	[GF_SNAP] = "Snap", [GF_COLOR] = "Colour", [GF_DRIVE] = "Drive", [GF_LEVEL] = "Level",
 	[GF_DLSEND] = "Delay Send", [GF_RVSEND] = "Reverb Send", [GF_FILTER] = "Filter", [GF_RESO] = "Resonance",
-	[GF_SRR] = "Sample Rate", [GF_VOLUME] = "Drum Vol", [GF_DJFILTER] = "Drums Filter", [GF_COMP] = "Drum Comp",
+	[GF_SRR] = "Sample Rate", [GF_FENV] = "Filter Env", [GF_VOLUME] = "Drum Vol", [GF_DJFILTER] = "Drums Filter", [GF_COMP] = "Drum Comp",
 };
 
 const char* groove_field_name(int field) {
@@ -555,8 +674,11 @@ const char* groove_field_name(int field) {
 }
 
 const char* groove_lane_label(void) {
-	static char label[] = "Drum 1";
-	label[5] = '1' + lane_sel;
+	static char label[16];
+	if (lock_step != NO_STEP)
+		sprintf(label, "Lock step %d", (lock_step + 1) & 63);
+	else
+		sprintf(label, "Drum %d", (lane_sel + 1) & 7);
 	return label;
 }
 
@@ -568,6 +690,11 @@ const char* groove_field_str(int field, char* buf) {
 	}
 	u8 b = (field == GF_DJFILTER) ? pat.djfilter : (field == GF_COMP) ? pat.comp : field_byte(field);
 	switch (field) {
+	case GF_FENV:
+		if (b == DRUM_FILTER_OFF)
+			return "Off";
+		sprintf(buf, "%+d", ((b - DRUM_FILTER_OFF) * 100) / 127);
+		return buf;
 	case GF_COMP:
 	case GF_SRR:
 		if (!b)
@@ -696,13 +823,13 @@ static void fire(int l) {
 		gate[l] = gate_len;
 	}
 	else
-		trigger_lane(l, vel);
+		trigger_lane(l, vel, lane_pos[l]);
 	flash[l] = 255;
 }
 
 static void restart_lanes(void) {
 	for (int l = 0; l < GROOVE_LANES; ++l) {
-		lane_pos[l] = pat.lane[l].start;
+		lane_pos[l] = 0;
 		fire(l);
 	}
 }
@@ -822,7 +949,12 @@ void groove_audio(void) {
 	for (int l = 0; l < GROOVE_LANES; ++l)
 		if (eff_live & (1 << l))
 			compute_eff(l);
-	drums_render(pat.volume, pat.djfilter, pat.comp);
+	int dj = pat.djfilter; // DJ filter + knob / CV / LFO modulation
+	for (int i = 0; i < pat.nmods; ++i)
+		if (pat.mod[i].lane == LANE_ALL && pat.mod[i].source >= MOD_A && pat.mod[i].source <= MOD_Y)
+			dj += (int)(mod_value(&pat.mod[i], 0) * pat.mod[i].amount * (255.f / 127.f));
+	dj_eff = clampi(dj, 0, 255);
+	drums_render(pat.volume, dj_eff, pat.comp);
 }
 
 // ---------------------------------------------------------------------------
@@ -852,14 +984,18 @@ void groove_draw_leds(void) {
 		for (int y = ROW_STEPS; y < 8; ++y) {
 			int idx = page * GROOVE_PAGE + (y - ROW_STEPS) * 8 + fi;
 			u8 s = pat.step[lane_sel][idx];
-			int inloop = idx >= sel->start && idx < sel->start + sel->length;
+			int inloop = idx < sel->length;
 			k = inloop ? 14 : 0;
 			if (s & STEP_TRIG) {
 				int vel = (s >> STEP_VEL_SHIFT) & STEP_VEL_MASK;
 				k = 80 + (vel ? vel : VEL_DEFAULT) * 25;
+				if (step_locks(lane_sel, idx)) // has step locks: dim flicker
+					k = ((millis() >> 6) & 3) ? k : 60;
 			}
 			if (idx == playhead)
 				k = 255;
+			if (lock_step == idx && lock_lane == lane_sel) // step lock mode: slow blink
+				k = ((millis() >> 9) & 1) ? 255 : 0;
 			led_ram[fi][y] = gamma8(k);
 		}
 	}
@@ -867,12 +1003,18 @@ void groove_draw_leds(void) {
 
 void groove_draw_oled(void) {
 	GrooveLane* sel = &pat.lane[lane_sel];
+	if (lock_step != NO_STEP) { // step lock mode
+		int n = step_locks(lock_lane, lock_step);
+		fdrawstr(0, 0, F_16_BOLD, "Lock step %d", lock_step + 1);
+		fdrawstr(0, 18, F_8, "%d locked  click=clear  hold=exit", n);
+		return;
+	}
 	fdrawstr(0, 0, F_16_BOLD, "%d %s", lane_sel + 1, drum_model_names[sel->snd.model]);
 	if (pending_slot != NO_SLOT)
 		fdrawstr(-128, 2, F_12, "P%d>%d", cur_slot + 1, pending_slot + 1);
 	else
 		fdrawstr(-128, 2, F_12, "%sP%d %d/%d", recording_now ? "\x9c" : "", cur_slot + 1,
-			lane_pos[lane_sel] - sel->start + 1, sel->length);
+			lane_pos[lane_sel] + 1, sel->length);
 	// one activity meter per lane; dithered = muted, top line = selected
 	for (int l = 0; l < GROOVE_LANES; ++l) {
 		int x0 = l * 16 + 1, x1 = x0 + 13;

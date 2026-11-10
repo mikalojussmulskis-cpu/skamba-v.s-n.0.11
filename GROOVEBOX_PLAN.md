@@ -688,3 +688,21 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
   - Applied to dry and sends.
   - Offline: no clipping at any setting; ~+2 dB RMS at mid settings.
 - Filter stability sweep (2,754 configs incl. new models) OK; host test `t2.c` 14/14.
+
+### Phase 10: step lock mode, filter envelope, DJ filter modulation, scale-snapped random pitch (done)
+- **Step lock mode** (user design):
+  - Long press (0.4 s) on a step enters lock mode for it; the step blinks slowly, and an empty step gets a hit.
+  - While in lock mode, every drum param edit (shift + pads, encoder, slider) becomes a lock on that step.
+  - Encoder click clears the step's locks. Long press the same step to leave, or another step to move there.
+  - Drum pads still play but don't change the lane.
+  - A short tap toggles the step on release. Turning a step off clears its locks.
+  - 48 locks per pattern (`GrooveLock`). Steps with locks flicker.
+- **Filter envelope** (`DrumParams.fenv`, Params 2 + D pad, printed "decay2"):
+  - Middle = off; right = opens on the hit and closes; left = starts closed and opens.
+  - Runs at half the drum's main decay time (k² per sample). With the lane filter off it works on a low-pass.
+  - Encoder click resets it to the middle.
+- **DJ filter modulation**: mod slots with lane 8 (`LANE_ALL`) on the HPF pad; knob/CV/LFO A–Y applied every block.
+- **Random tune follows the scale**: with a Random mod on Tune, the result snaps to the preset's scale (`GrooveScaleQuantize` in params.h; tune 0 = root).
+- **Velocity curve**: `vel_gain[] = 0.03 … 1.0`; drum pad rows = 100/50/30/8/3 %.
+- **Format v6**: lane = length, flags, sound (14 bytes incl. fenv); the unused `start` field was dropped; 48 locks appended (pattern 944 B). v1–v5 migrated on load.
+- Host test `t3.c`: 15 checks, all passing. Filter stability sweep OK.

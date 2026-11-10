@@ -20,7 +20,7 @@ extern const char* const drum_model_names[DM_LAST];
 
 #define DRUM_FILTER_OFF 128 // filter byte: <128 low-pass, 128 off, >128 high-pass
 
-typedef struct DrumParams { // 13 bytes, stored per lane in the groove pattern
+typedef struct DrumParams { // 14 bytes, stored per lane in the groove pattern
 	uint8_t model;  // EDrumModels
 	int8_t tune;    // -128..127 = -1..+1 octave
 	uint8_t sweep;  // pitch envelope depth
@@ -34,6 +34,7 @@ typedef struct DrumParams { // 13 bytes, stored per lane in the groove pattern
 	uint8_t filter; // resonant filter: 0..127 low-pass (cutoff), 128 off, 129..255 high-pass
 	uint8_t reso;   // filter resonance
 	uint8_t srr;    // sample rate reduction: 0 off .. 255 = 1/64 of the rate
+	uint8_t fenv;   // filter envelope: 128 off, >128 opens on the hit and closes, <128 starts closed and opens
 } DrumParams;
 
 // drum bus, filled by drums_render() every audio block

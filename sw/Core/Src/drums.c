@@ -75,6 +75,7 @@ typedef struct DrumVoice {
 	float srr_acc, srr_hold;       // sample rate reduction state
 	float fold, rm;                // OSC_FOLD: wavefolder gain, ring modulation depth
 	float crush, srr0;             // built-in bit crush (levels, 0 = off) and maximum rate
+	float fenv, fenv_k;            // filter envelope (1 -> 0) and its per-block decay
 	uint32_t rng;
 	uint16_t clap_timer;
 	uint8_t clap_left, osc, exc, nmetal, emode, model, lane, active;
@@ -114,6 +115,7 @@ static float tanpade(float x) { // tan(x) for 0 <= x < 1.45, Pade approximation
 }
 static inline float fabs_(float x) { return x < 0.f ? -x : x; }
 static inline float clampf_(float x, float a, float b) { return x < a ? a : x > b ? b : x; }
+static inline int clampi_(int x, int a, int b) { return x < a ? a : x > b ? b : x; }
 static inline float psin(float ph) { // sin(2 pi ph) for ph in 0..1 (sign flipped; doesn't matter here)
 	float x = ph * 2.f - 1.f;
 	float y = 4.f * x * (1.f - fabs_(x));
@@ -200,7 +202,9 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 	d->srr0 = 1.f;
 	exc_filter(d, EF_OFF, 0.f, 0.f); // models with noise / metal set their own below
 
-	const float g = vel * (1.f / 7.f);
+	// velocity 1..7 -> gain: wide range, row 5 of the drum pads is barely audible
+	static const float vel_gain[8] = { 0.f, 0.03f, 0.08f, 0.16f, 0.3f, 0.5f, 0.75f, 1.f };
+	const float g = vel_gain[vel & 7];
 	const float t = fexp2(p->tune * (1.f / 128.f));
 	const float s = p->sweep * (1.f / 255.f);
 	const float n = p->snap * (1.f / 255.f);
@@ -410,6 +414,12 @@ void drums_trigger(int lane, const DrumParams* p, int vel) {
 		exc_filter(d, EF_HP, 1000.f, 0.7f);
 		break;
 	}
+	// filter envelope: decays twice as fast as the main amplitude (k^2 per sample, ^64 per block)
+	float kb = (d->osc != OSC_NONE) ? d->kt : (d->kn_tail > 0.f ? d->kn_tail : d->kn);
+	for (int i = 0; i < 7; ++i)
+		kb *= kb;
+	d->fenv = 1.f;
+	d->fenv_k = kb;
 	d->active = 1;
 }
 
@@ -594,10 +604,18 @@ HOT void drums_render(int master, int djfilter, int comp) {
 		if (!use_exc) d->an = 0.f;
 		int fmode = 0; // resonant filter: 0 off, 1 low-pass, 2 high-pass
 		float a1 = 0.f, a2 = 0.f, a3 = 0.f, k = 2.f;
-		if (p->filter < DRUM_FILTER_OFF - 4 || p->filter > DRUM_FILTER_OFF + 4) {
-			fmode = p->filter < DRUM_FILTER_OFF ? 1 : 2;
-			float fc = (fmode == 1) ? 18000.f * fexp2((p->filter - DRUM_FILTER_OFF) * (9.f / 128.f)) // 35 Hz .. open
-			                        : 20.f * fexp2((p->filter - DRUM_FILTER_OFF) * (9.f / 127.f));   // 20 Hz .. 10 kHz
+		int fb = p->filter;
+		if (p->fenv != DRUM_FILTER_OFF) { // filter envelope moves the cutoff; with the filter off it works on a low-pass
+			int amt = p->fenv - DRUM_FILTER_OFF;
+			if (fb > DRUM_FILTER_OFF - 5 && fb < DRUM_FILTER_OFF + 5) fb = DRUM_FILTER_OFF - 5;
+			float e = (amt > 0) ? 1.f - d->fenv : d->fenv;
+			fb = clampi_(fb - (int)(e * (amt > 0 ? amt : -amt)), 0, 255);
+			d->fenv *= d->fenv_k;
+		}
+		if (fb < DRUM_FILTER_OFF - 4 || fb > DRUM_FILTER_OFF + 4) {
+			fmode = fb < DRUM_FILTER_OFF ? 1 : 2;
+			float fc = (fmode == 1) ? 18000.f * fexp2((fb - DRUM_FILTER_OFF) * (9.f / 128.f)) // 35 Hz .. open
+			                        : 20.f * fexp2((fb - DRUM_FILTER_OFF) * (9.f / 127.f));   // 20 Hz .. 10 kHz
 			if (fc > 13000.f) fc = 13000.f;
 			float gc = tanpade(3.14159265f * fc / SR);
 			k = 2.f - p->reso * (1.95f / 255.f);
