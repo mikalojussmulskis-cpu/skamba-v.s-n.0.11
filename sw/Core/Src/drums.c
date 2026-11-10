@@ -489,10 +489,16 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		exc_filter(d, EF_HP, 1000.f, 0.7f);
 		break;
 	}
-	// filter envelope: decays twice as fast as the main amplitude (k^2 per sample, ^64 per block)
-	float kb = (d->osc != OSC_NONE) ? (d->hold ? d->kt_rel : d->kt) : (d->kn_tail > 0.f ? d->kn_tail : d->kn);
-	for (int i = 0; i < 7; ++i)
-		kb *= kb;
+	// filter envelope: decays twice as fast as the main amplitude (k^2 per sample, ^64 per block);
+	// a held note (Bass) decays it over half of the hold
+	float kb;
+	if (d->hold && d->osc != OSC_ACID)
+		kb = 1.f - 2.f / (float)d->hold;
+	else {
+		kb = (d->osc != OSC_NONE) ? d->kt : (d->kn_tail > 0.f ? d->kn_tail : d->kn);
+		for (int i = 0; i < 7; ++i)
+			kb *= kb;
+	}
 	d->fenv = 1.f;
 	d->fenv_k = kb;
 	d->active = 1;
@@ -726,12 +732,16 @@ HOT void drums_render(int master, int djfilter, int comp) {
 			acid_k = p->reso * (3.9f / 255.f);
 			acid_w = p->tone * (1.f / 255.f);
 		}
-		else if (p->fenv != DRUM_FILTER_OFF) { // filter envelope moves the cutoff; with the filter off it works on a low-pass
-			int amt = p->fenv - DRUM_FILTER_OFF;
-			if (fb > DRUM_FILTER_OFF - 5 && fb < DRUM_FILTER_OFF + 5) fb = DRUM_FILTER_OFF - 5;
-			float e = (amt > 0) ? 1.f - d->fenv : d->fenv;
-			fb = clampi_(fb - (int)(e * (amt > 0 ? amt : -amt)), 0, 255);
+		else if (p->fenv != DRUM_FILTER_OFF) {
+			// filter envelope (1 -> 0) pushes the cutoff away from the knob by up to +-4 octaves
+			// and returns to it: positive = starts open / thin and closes to the knob, negative =
+			// starts closed and opens. With the filter off it works on an open low-pass (so only
+			// a negative amount does something); the filter never switches between LP and HP.
+			float oct = (p->fenv - DRUM_FILTER_OFF) * (4.f / 127.f) * d->fenv;
 			d->fenv *= d->fenv_k;
+			if (fb > DRUM_FILTER_OFF - 5 && fb < DRUM_FILTER_OFF + 5) fb = DRUM_FILTER_OFF - 5;
+			if (fb < DRUM_FILTER_OFF) fb = clampi_(fb + (int)(oct * (128.f / 9.f)), 0, DRUM_FILTER_OFF - 5);
+			else fb = clampi_(fb + (int)(oct * (127.f / 9.f)), DRUM_FILTER_OFF + 5, 255);
 		}
 		if (d->osc != OSC_ACID && (fb < DRUM_FILTER_OFF - 4 || fb > DRUM_FILTER_OFF + 4)) {
 			fmode = fb < DRUM_FILTER_OFF ? 1 : 2;

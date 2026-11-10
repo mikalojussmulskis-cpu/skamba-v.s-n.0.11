@@ -357,7 +357,7 @@ void on_shift_down(void) {
 	//	break;
 	case SB_PREV: // prev
 		editmode = EM_START;
-		if (isplaying())
+		if (isplaying() && !GROOVE_GRID) // GROOVE HOOK: in the drum grid Prev pages / sets the lane start, no reset
 			got_ui_reset = true;
 		break;
 	case SB_NEXT: // next 
@@ -453,7 +453,8 @@ void on_shift_up(int release_button) {
 		//}
 		//else 
 		if (!touched_main_area && shortpress) {
-			if (isplaying()) {
+			if (GROOVE_GRID) groove_page(-1); // GROOVE HOOK: previous step page
+			else if (isplaying()) {
 			//	got_ui_reset = true; did it on note down already
 			}
 			else
@@ -465,7 +466,8 @@ void on_shift_up(int release_button) {
 		break;
 	case SB_NEXT: // next
 		if (!touched_main_area && shortpress) {
-			set_cur_step(cur_step + 1, !isplaying());
+			if (GROOVE_GRID) groove_page(1); // GROOVE HOOK: next step page
+			else set_cur_step(cur_step + 1, !isplaying());
 			editmode = EM_PLAY;
 		}
 		if (touched_main_area || prev_editmode == editmode)

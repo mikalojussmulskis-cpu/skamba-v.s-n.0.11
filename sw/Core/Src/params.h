@@ -854,6 +854,12 @@ static int groove_field_for_param(int p) {
 	case P_DLSEND: return GF_DLSEND;
 	case P_RVSEND: return GF_RVSEND;
 	case P_ARPMODE: case P_SEQMODE: return GF_COND; // the "order" pads: step condition (step lock mode)
+	case P_ARPDIV: return GF_ROLL;        // momentary FX while held: step repeat
+	case P_ARPPROB: return GF_RATCHET;    // retriggers
+	case P_ARPLEN: return GF_REVERSE;     // sequencer backwards
+	case P_ARPOCT: return GF_PITCHFALL;   // all drums fall in pitch
+	case P_SEQDIV: return GF_GATE;        // trance gate on the drum bus
+	case P_SEQPROB: return GF_CRUSH;      // bit / rate crush on the drum bus
 	case P_INTERVAL: return GF_COLOR;
 	case P_ENV_LEVEL: return GF_FILTER;
 	case P_MIXHPF: return GF_DJFILTER;

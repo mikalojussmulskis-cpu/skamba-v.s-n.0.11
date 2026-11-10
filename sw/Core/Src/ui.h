@@ -811,7 +811,7 @@ void editmode_ui(void) {
 	}*/
 	else switch (editmode) {
 	case EM_PLAY:
-		if (GROOVE_GRID && !(lastencodertime && lastencodertime > millis() - 2000)) { groove_draw_oled(); break; } // GROOVE HOOK
+		if (GROOVE_GRID && !(lastencodertime && lastencodertime > millis() - 2000)) { groove_draw_oled(0); break; } // GROOVE HOOK
 		if (ramsample.samplelen) {
 			DrawSamplePlayback(&ramsample);
 		}
@@ -893,8 +893,8 @@ void editmode_ui(void) {
 #if GROOVE_ENABLE
 			if (groove_field_for_param(pi) >= 0) { // GROOVE HOOK: drum lane / drum volume names
 				pn = groove_field_name(groove_field_for_param(pi));
-				if (ui_edit_mod == 0 && GROOVE_FIELD_IS_LANE(groove_field_for_param(pi)))
-					pagename = groove_lane_label();
+				if (ui_edit_mod == 0)
+					pagename = groove_field_page(groove_field_for_param(pi));
 			}
 #endif
 			int pw = strwidth(F_16_BOLD, pn);
@@ -936,10 +936,12 @@ void editmode_ui(void) {
 		}
 		break;
 	case EM_START:
+		if (GROOVE_GRID) { groove_draw_oled(1); break; } // GROOVE HOOK: lane loop start
 		fdrawstr(0, 0, F_20_BOLD, I_PREV "Start %d", loopstart_step + 1);
 		fdrawstr(0, 16, F_20_BOLD, I_PLAY "Current %d", cur_step + 1);
 		break;
 	case EM_END:
+		if (GROOVE_GRID) { groove_draw_oled(2); break; } // GROOVE HOOK: lane loop end
 		fdrawstr(0, 0, F_20_BOLD, I_NEXT "End %d", ((rampreset.looplen_step + loopstart_step) & 63) + 1);
 		fdrawstr(0, 16, F_20_BOLD, I_INTERVAL "Length %d", rampreset.looplen_step);
 		break;
@@ -1187,11 +1189,12 @@ void editmode_ui(void) {
 				ainlvl = clampi((ainlvl * (32 - delay)) >> (6), 0, 255); // fade out
 				k = maxi(k, ainlvl);
 			}
-			if (!(GROOVE_GRID && editmode == EM_PLAY)) // GROOVE HOOK: the drum grid draws these
+			if (!(GROOVE_GRID && (editmode == EM_PLAY || editmode == EM_START || editmode == EM_END))) // GROOVE HOOK: the drum grid draws these
 				led_ram[fi][y] = led_gamma(k);
 		}
 	}
-	if (GROOVE_GRID && editmode == EM_PLAY) groove_draw_leds(); // GROOVE HOOK
+	if (GROOVE_GRID && (editmode == EM_PLAY || editmode == EM_START || editmode == EM_END)) // GROOVE HOOK
+		groove_draw_leds(editmode == EM_START ? 1 : editmode == EM_END ? 2 : 0);
 	{
 #if GROOVE_ENABLE
 		if (GROOVE_IS_ON) led_ram[8][SB_PLAY] = groove_play_led(playing, clockglow); else // GROOVE HOOK: drum transport LED in the grid

@@ -82,7 +82,10 @@ enum EGrooveFields { GF_MODEL, GF_TUNE, GF_SWEEP, GF_DECAY, GF_SNAP, GF_COLOR, G
 	GF_VOLUME,            // drum master volume (whole groove pattern)
 	GF_DJFILTER,          // global drum filter, DJ style (whole groove pattern)
 	GF_COMP,              // drum bus compressor (whole groove pattern)
-	GF_COND };            // step condition of the locked step (Arp / Seq order pads; stored as a step lock)
+	GF_COND,              // step condition of the locked step (Arp / Seq order pads; stored as a step lock)
+	// momentary drum FX (Arp row: Divide, Prob, Euclid Len, Octaves; Seq row: Divide, Prob):
+	// the effect runs while the pad is held under Shift; encoder / slider = its setting
+	GF_ROLL, GF_RATCHET, GF_REVERSE, GF_PITCHFALL, GF_GATE, GF_CRUSH };
 // encoder click puts these back to the middle (off)
 #define GROOVE_FIELD_IS_FILTER(f) ((f) == GF_FILTER || (f) == GF_DJFILTER || (f) == GF_FENV)
 // fields of one lane (the OLED shows the lane / locked step), as opposed to the whole drum bus
@@ -101,6 +104,11 @@ const char* groove_model_name(void);        // model of the selected lane
 const char* groove_field_name(int field);   // OLED name, e.g. "Pitch Sweep"
 const char* groove_field_str(int field, char* buf); // OLED value text
 const char* groove_lane_label(void);        // "Drum 3"
+const char* groove_field_page(int field);   // OLED second line: lane label, "all drums", "hold pad = on"
+void groove_fx_down(int field, int fi);     // a param pad was touched (fi = column): starts a momentary FX
+// Prev / Next held in the drum grid: the 64 pads are the selected lane's steps
+void groove_loop_pad(int fi, int step, int start, int trig); // start = Prev (loop start), else Next (loop end)
+void groove_page(int delta);                // Prev / Next short press: the 16-step page shown on R7 / R8
 
 // --- Plinky voice limit in Groove mode (4 notes), DoAudio + UpdateEnvelope --
 extern unsigned char groove_voice_kill;     // stolen voices: fade out, stay silent until replayed
@@ -121,8 +129,9 @@ void SaveGroovePattern(int slot, const void* data, int size);
 int  GrooveFlashBusy(void);
 
 // --- drawing (main loop) ----------------------------------------------------
-void groove_draw_oled(void);
-void groove_draw_leds(void);
+// mode: 0 = drum grid, 1 = Prev held (lane start), 2 = Next held (lane end)
+void groove_draw_oled(int mode);
+void groove_draw_leds(int mode);
 
 // ---------------------------------------------------------------------------
 // Measurement build (make GROOVE_STATS=1). Never shipped as a release.

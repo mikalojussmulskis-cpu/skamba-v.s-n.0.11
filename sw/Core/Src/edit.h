@@ -334,7 +334,9 @@ void finger_editing(int fi, int frame) {
 		int old = edit_param;
 
 
-		if (GROOVE_GRID && editmode == EM_PLAY) groove_pad(fi, fyi, trig, uif->pressure); else // GROOVE HOOK
+		if (GROOVE_GRID && editmode == EM_PLAY) groove_pad(fi, fyi, trig, uif->pressure); // GROOVE HOOK
+		else if (GROOVE_GRID && (editmode == EM_START || editmode == EM_END)) groove_loop_pad(fi, step, editmode == EM_START, trig); // GROOVE HOOK: lane loop
+		else
 		switch (editmode) {
 		case EM_SAMPLE: {
 			SampleInfo* s = getrecsample();
@@ -419,6 +421,7 @@ void finger_editing(int fi, int frame) {
 					if (trig && edit_param / 6 != PG_ARP && edit_param / 6 != PG_SEQ) ShowMessage(F_16_BOLD, "Plinky pads only", "not used by drums");
 					edit_param = old;
 				}
+				if (GROOVE_GRID && trig) groove_fx_down(groove_field_for_param(edit_param), fi); // GROOVE HOOK: momentary drum FX pads
 #endif
 				if (trig) {
 #ifndef NEW_LAYOUT
@@ -451,7 +454,7 @@ void finger_editing(int fi, int frame) {
 #if GROOVE_ENABLE
 					if (groove_field_for_param(edit_param) >= 0) // GROOVE HOOK: drum lane names
 						ShowMessage(F_20_BOLD, groove_field_name(groove_field_for_param(edit_param)),
-							GROOVE_FIELD_IS_LANE(groove_field_for_param(edit_param)) ? groove_lane_label() : "all drums");
+							groove_field_page(groove_field_for_param(edit_param)));
 					else
 #endif
 					ShowMessage(F_20_BOLD, paramnames[edit_param], pagenames[edit_param / 6]);

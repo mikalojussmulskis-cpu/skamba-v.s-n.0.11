@@ -752,3 +752,25 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 | Phase 12 default | 402,904 | 18,984 | 30,516 |
 | **Phase 13 default** | **405,620** | **16,268** | **30,524** |
 | Phase 13 STATS | 406,292 | 15,596 | 30,556 |
+
+### Phase 14: defaults, filter envelope rework, lane loops, momentary FX (done)
+- **Drum master volume** goes back to 50 % every time Groove mode is switched on (not saved by itself).
+- **Defaults**: default kit Clap = level 40 %, decay 10 %, reverb 5 %. Choosing **Bass** or **Acid** for a lane whose Filter Env is off installs the model's starting sound once the choice has settled (400 ms): Acid = level 15, cutoff 25, decay 30, colour 0, drive 8 (resonance 75, env depth +63 %, accent 59, slide 24, reverb 4); Bass = decay 45, drive 8, resonance 30, LP 80, filter env +70, reverb 0 (sweep 12, snap 16, colour 39, level 78). Acid also gets its generated line as before.
+- **Filter envelope reworked**: the envelope is the hit's own decay curve at twice the speed (a held Bass note: half of its hold). The amount is now **octaves around the knob**, up to ±4: positive = the cutoff starts higher (open / thinner) and returns to the knob, negative = starts lower and rises to it. The filter never switches between low-pass and high-pass any more (that was the "awkward" behaviour: an HP with a positive envelope used to sweep through "off" into LP). With the filter off the envelope works on an open low-pass, so only a negative amount does something there.
+- **Lane loops with the Plinky arrows** (drum grid): hold **Prev** (loop start) or **Next** (loop end) and the 64 pads are the selected lane's 64 steps, like Plinky's own loop editing; tap a pad to set that lane's start / end, **hold the pad** to set all lanes. The LEDs show the lane's loop, trigs, start / end (blinking) and playhead; the OLED shows `Lane 3 start 17 / length 16`. The loop start lives in bits 1–6 of the lane flags byte (layout unchanged, old patterns read start 0). An end before the start wraps around the 64 steps. **Short press Prev / Next** = previous / next 16-step page on R7 / R8 (the OLED title shows `p2` when a lane loop is longer than a page or another page is shown). In the drum grid, Prev no longer resets Plinky's playback.
+- **Momentary FX** on the Arp / Seq rows while the pad is held under Shift (the pad lights are Plinky's; the OLED shows the effect name top right); the encoder / slider sets the last touched effect's setting (not saved):
+  - Shift A + **Divide** = **Roll** (step repeat 1/16, 1/8, 1/4, 1/2): all lanes loop the steps from where the pad was pressed; on release the pattern continues where it would have been.
+  - Shift A + **Prob %** = **Ratchet** (×2, ×3, ×4, ×8 per step): the step's hits retrigger with the velocity rolling off.
+  - Shift A + **Euclid Len** = **Reverse**: lanes run backwards inside their loops.
+  - Shift A + **Octaves** = **Pitch Fall** (amount): every hit tunes lower, up to 24 semitones over a bar at 100 %, back to normal on release; Bass / Acid notes stay in scale.
+  - Shift B + **Divide** = **Gate** (trance gate 1/8, 1/16, 1/32, 1/64): the drum bus (dry and sends) is chopped, 2 ms ramps.
+  - Shift B + **Prob %** = **Crush** (amount): bit depth down to 4 bits and sample rate down to 1/16 on the bus.
+  - Leaving the drum grid or stopping turns every effect off.
+- Host tests: `t3` 16/16, `t4` 15/15, `t5` 20/20, `t6` 15/15 (now also Bass starting sound), new `t7` 22/22 (loops, pages, all six effects); labs: stability 3,078 OK, robustness 0 unstable, acid lab unchanged.
+- `GROOVE=0 FACTORY_TEST_JIG=1` still byte-identical to the baseline.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 13 default | 405,620 | 16,268 | 30,524 |
+| **Phase 14 default** | **408,124** | **13,764** | **30,564** |
+| Phase 14 STATS | 408,676 | 13,212 | 30,592 |
