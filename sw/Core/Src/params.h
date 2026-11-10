@@ -854,12 +854,14 @@ static int groove_field_for_param(int p) {
 	case P_DLSEND: return GF_DLSEND;
 	case P_RVSEND: return GF_RVSEND;
 	case P_ARPMODE: case P_SEQMODE: return GF_COND; // the "order" pads: step condition (step lock mode)
+#if GROOVE_FX
 	case P_ARPDIV: return GF_ROLL;        // momentary FX while held: step repeat
 	case P_ARPPROB: return GF_RATCHET;    // retriggers
 	case P_ARPLEN: return GF_REVERSE;     // sequencer backwards
 	case P_ARPOCT: return GF_PITCHFALL;   // all drums fall in pitch
 	case P_SEQDIV: return GF_GATE;        // trance gate on the drum bus
 	case P_SEQPROB: return GF_CRUSH;      // bit / rate crush on the drum bus
+#endif
 	case P_INTERVAL: return GF_COLOR;
 	case P_ENV_LEVEL: return GF_FILTER;
 	case P_MIXHPF: return GF_DJFILTER;
@@ -891,7 +893,12 @@ static int groove_param_blocked(int p) {
 	case PG_ARP: case PG_SEQ: case PG_SAMPLER: case PG_JITTER:
 		return 1;
 	}
-	return p == P_RVUNUSED;
+	switch (p) { // Plinky-only settings of the mixer rows
+	case P_MIDI_CH_IN: case P_MIDI_CH_OUT: case P_CV_QUANT: case P_MIXINPUT: case P_MIXINWETDRY:
+	case P_ACCEL_SENS: case P_MIX_WIDTH: case P_RVUNUSED: case P_JIT_UNUSED:
+		return 1;
+	}
+	return 0;
 }
 _Static_assert(M_ENV == 1 && M_PRESSURE == 2 && M_A == 3 && M_Y == 6 && M_RND == 7, "groove.c numbering");
 #endif

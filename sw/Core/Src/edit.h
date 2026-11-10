@@ -417,10 +417,8 @@ void finger_editing(int fi, int frame) {
 #endif
 				if (editmode == EM_PARAMSB) edit_param += 6;
 #if GROOVE_ENABLE
-				if (GROOVE_GRID && groove_param_blocked(edit_param)) { // GROOVE HOOK: Plinky-only param (the arp / seq rows stay silent)
-					if (trig && edit_param / 6 != PG_ARP && edit_param / 6 != PG_SEQ) ShowMessage(F_16_BOLD, "Plinky pads only", "not used by drums");
+				if (GROOVE_GRID && groove_param_blocked(edit_param)) // GROOVE HOOK: Plinky-only param: the pad does nothing
 					edit_param = old;
-				}
 				if (GROOVE_GRID && trig) groove_fx_down(groove_field_for_param(edit_param), fi); // GROOVE HOOK: momentary drum FX pads
 #endif
 				if (trig) {

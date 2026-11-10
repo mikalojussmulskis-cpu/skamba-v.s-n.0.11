@@ -90,7 +90,7 @@ static const DrumParams default_kit[GROOVE_LANES] = {
 	{ DM_SNARE,      0,  40, 115, 130, 150,   0, 200,   0,  13, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
 	{ DM_CLAP,       0,   0,  26,   0, 130,   0, 102,   0,  13, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
 	{ DM_CHAT,       0,   0, 109,  40, 140,   0, 170,   0,   0, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
-	{ DM_OHAT,       0,   0, 146,  40, 140,   0, 150,   0,   7, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
+	{ DM_OHAT,       0,   0, 102,  40, 140,   0, 150,   0,   7,              77, 0, 0,             217 },
 	{ DM_TOM,      -40,  90, 153,  30,  60,   0, 210,   0,  10, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
 	{ DM_RIM,        0,  20, 118, 120, 100,   0, 170,   0,  13, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
 	{ DM_FM,         0,  30, 148, 110, 180,   0, 160,  70,  17, DRUM_FILTER_OFF, 0, 0, DRUM_FILTER_OFF },
@@ -134,7 +134,9 @@ static u8 gate[GROOVE_LANES];     // ticks left of a "Sample" lane hit
 static u8 hit_vel[GROOVE_LANES];  // velocity 1..7 of that hit
 static u8 flash[GROOVE_LANES];    // LED/OLED activity, decays
 static u8 lane_sel;               // lane being edited
-static u8 page;                   // 16-step page shown on R7/R8
+static u8 page;                   // 16-step page shown on R7/R8 (see view_page)
+static int page_in_loop(int p);
+static int view_page(void);
 static u8 running;                // transport was running last tick
 static u8 recording_now;
 static u8 drums_play;             // drum transport running (own Play button in the drum grid)
@@ -161,12 +163,16 @@ static u8 lane_loop[GROOVE_LANES];           // times the lane has wrapped since
 static u8 slide_from;                        // bitmask: the lane's last fired step was a slide (Acid)
 static u8 acid_gen;                          // lane + 1 whose model was just set to Bass / Acid (starting sound, notes), 0 none
 static u32 acid_gen_ms;
+static u8 acid_prev_model;                   // the lane's model before the current scroll through the models
+static u8 model_edit_lane = 255;             // lane / time of the last model change (a scroll = changes < 400 ms apart)
+static u32 model_edit_ms;
 static u8 fired;                             // bitmask: lanes whose current step triggered a synth hit (ratchet)
 
 // momentary FX (GF_ROLL .. GF_CRUSH), on while their pad is held
 enum { FX_ROLL, FX_RATCHET, FX_REVERSE, FX_PITCHFALL, FX_GATE, FX_CRUSH, FX_COUNT };
 #define FX_BIT(field) (1 << ((field) - GF_ROLL))
 #define FX_IS(field) ((field) >= GF_ROLL && (field) <= GF_CRUSH)
+#if GROOVE_FX
 static u8 fx_on;                             // bitmask of active FX
 static u8 fx_set[FX_COUNT] = { 1, 0, 0, 128, 1, 128 }; // settings (not saved): roll 1/8, ratchet x2, -, fall 50 %, gate 1/16, crush 50 %
 static u8 fx_field[8];                       // FX field held by each column's finger
@@ -183,6 +189,10 @@ static const char* const fx_ratchet_names[4] = { "x2", "x3", "x4", "x8" };
 static const char* const fx_short[FX_COUNT] = { "roll", "ratchet", "reverse", "fall", "gate", "crush" };
 static int fx_get(int field);
 static void fx_setv(int field, int value);
+#else
+#define fx_on 0
+#define fx_pitch 0.f
+#endif
 static u8 dj_eff = DRUM_FILTER_OFF;          // DJ filter after modulation
 
 static u8 pad_row[8] = { 255, 255, 255, 255, 255, 255, 255, 255 };
@@ -211,8 +221,10 @@ static void mark_dirty(void) {
 }
 
 static void fx_all_off(void) {
+#if GROOVE_FX
 	fx_on = 0;
 	fx_pitch = 0.f;
+#endif
 	fired = 0;
 }
 
@@ -469,15 +481,15 @@ static void trigger_lane(int l, int vel, int step, int gate, int legato) {
 }
 
 // the lane's model was set to Bass or Acid (and the choice settled): a lane that
-// was never set up as a note sound (Filter Env off) gets the model's starting
-// sound. Acid also gets a new line: steps get a note (scale degree, mostly the
+// comes from a drum model (or has Filter Env off) gets the model's starting
+// sound; coming from Bass / Acid keeps the sound. Acid also gets a new line: steps get a note (scale degree, mostly the
 // root with steps and octave jumps), accents and slides; old locks of the lane
 // go (a Tune lock would replace the note).
 static void note_model_chosen(int l) {
 	DrumParams* d = &pat.lane[l].snd;
-	if (d->fenv == DRUM_FILTER_OFF) {
+	if (d->fenv == DRUM_FILTER_OFF || (acid_prev_model != DM_ACID && acid_prev_model != DM_BASS)) {
 		//                                    model    tune swp dec snap col drv lvl dl rv filt reso srr fenv
-		static const DrumParams acid_kit = { DM_ACID,  0,  60,  77, 150,   0, 20,  38, 0, 10,  64, 190, 0, 208 };
+		static const DrumParams acid_kit = { DM_ACID,  0,  60,  77, 150,   0, 20, 128, 0, 10,  64, 190, 0, 208 };
 		static const DrumParams bass_kit = { DM_BASS,  0,  30, 115,  40, 100, 20, 200, 0,  0, 102,  77, 0, 217 };
 		*d = d->model == DM_ACID ? acid_kit : bass_kit;
 		mark_dirty();
@@ -531,7 +543,7 @@ void groove_pad(int fi, int row, int trig, int pressure) {
 		}
 	}
 	else if (row >= ROW_STEPS && row < 8) {
-		int idx = page * GROOVE_PAGE + (row - ROW_STEPS) * 8 + fi;
+		int idx = view_page() * GROOVE_PAGE + (row - ROW_STEPS) * 8 + fi;
 		if (trig) {
 			pad_row[fi] = row;
 			pad_time[fi] = millis();
@@ -555,6 +567,7 @@ void groove_pad(int fi, int row, int trig, int pressure) {
 	}
 }
 
+#if GROOVE_FX
 static int roll_pos(int l, int k) { // k steps after the roll's base position, inside the lane's loop
 	GrooveLane* ln = &pat.lane[l];
 	int start = LANE_START(ln);
@@ -573,7 +586,12 @@ static void fx_release(int field) {
 		fx_pitch = 0.f;
 }
 
+#endif
+
 void groove_fx_down(int field, int fi) {
+#if !GROOVE_FX
+	(void)field; (void)fi;
+#else
 	if (!FX_IS(field))
 		return;
 	pad_row[fi] = ROW_FX;
@@ -587,6 +605,7 @@ void groove_fx_down(int field, int fi) {
 	}
 	else if (field == GF_PITCHFALL)
 		fx_pitch = 0.f;
+#endif
 }
 
 // Prev / Next held: the 64 pads are the selected lane's steps; tap = loop start / end
@@ -621,22 +640,32 @@ void groove_loop_pad(int fi, int step, int start, int trig) {
 	}
 }
 
-void groove_page(int delta) {
-	page = (page + delta) & 3;
-	ShowMessage(F_20_BOLD, (const char*[]){ "steps 1-16", "steps 17-32", "steps 33-48", "steps 49-64" }[page], 0);
+void groove_page(int delta) { // only pages the selected lane's loop reaches
+	int p = view_page();
+	for (int i = 1; i < 4; ++i) {
+		int q = (p + delta * i) & 3;
+		if (page_in_loop(q)) {
+			page = q;
+			ShowMessage(F_20_BOLD, (const char*[]){ "steps 1-16", "steps 17-32", "steps 33-48", "steps 49-64" }[q], 0);
+			return;
+		}
+	}
 }
 
 void groove_pad_up(int fi) {
 	u8 bit = 1 << fi;
 	int row = pad_row[fi];
+#if GROOVE_FX
 	if (row == ROW_FX)
 		fx_release(fx_field[fi]);
-	else if (row == ROW_MUTE && !(pad_long & bit)) {
+	else
+#endif
+	if (row == ROW_MUTE && !(pad_long & bit)) {
 		pat.lane[fi].flags ^= LANE_MUTE;
 		mark_dirty();
 	}
 	else if (row >= ROW_STEPS && row < 8 && !(pad_long & bit)) { // short tap: toggle the step
-		int idx = page * GROOVE_PAGE + (row - ROW_STEPS) * 8 + fi;
+		int idx = view_page() * GROOVE_PAGE + (row - ROW_STEPS) * 8 + fi;
 		u8* s = &pat.step[lane_sel][idx];
 		if (*s & STEP_TRIG) {
 			*s = 0;
@@ -660,6 +689,19 @@ void groove_lock_clear(void) {
 	clear_step_locks(lock_lane, lock_step);
 	mark_dirty();
 	ShowMessage(F_20_BOLD, "locks cleared", 0);
+}
+
+// the 16-step pages (R7 / R8) the selected lane's loop reaches; another page is never shown
+static int page_in_loop(int p) {
+	GrooveLane* ln = &pat.lane[lane_sel];
+	int start = LANE_START(ln);
+	for (int i = 0; i < GROOVE_PAGE; ++i)
+		if (((p * GROOVE_PAGE + i - start) & 63) < ln->length)
+			return 1;
+	return 0;
+}
+static int view_page(void) {
+	return page_in_loop(page) ? page : LANE_START(&pat.lane[lane_sel]) / GROOVE_PAGE;
 }
 
 static int next_pos(int l) {
@@ -777,18 +819,22 @@ int groove_get_field(int field) {
 		return pat.comp * 4;
 	if (field == GF_COND)
 		return byte_to_value(GF_COND, cond_value());
+#if GROOVE_FX
 	if (FX_IS(field))
 		return fx_get(field);
+#endif
 	if (field < 0 || field > GF_FENV)
 		return 0;
 	return byte_to_value(field, field_byte(field));
 }
 
 void groove_set_field(int field, int value) {
+#if GROOVE_FX
 	if (FX_IS(field)) {
 		fx_setv(field, value);
 		return;
 	}
+#endif
 	if (field == GF_COND) { // condition of the locked step: encoder = one step per detent, slider = absolute
 		if (lock_step == NO_STEP) {
 			ShowMessage(F_16_BOLD, "Condition", "hold a step first");
@@ -839,6 +885,10 @@ void groove_set_field(int field, int value) {
 	else {
 		if (field == GF_MODEL) {
 			gate[lane_sel] = 0;
+			if (model_edit_lane != lane_sel || millis() - model_edit_ms > ACID_SETTLE_MS)
+				acid_prev_model = cur; // the model that had settled before this scroll
+			model_edit_lane = lane_sel;
+			model_edit_ms = millis();
 			if (b == DM_ACID || b == DM_BASS) { // starting sound / new notes once the choice has settled (see groove_tick)
 				acid_gen = lane_sel + 1;
 				acid_gen_ms = millis();
@@ -909,6 +959,7 @@ const char* groove_field_page(int field) {
 	return GROOVE_FIELD_IS_LANE(field) ? groove_lane_label() : "all drums";
 }
 
+#if GROOVE_FX
 static int fx_is_choice(int field) { // 4-way settings, as opposed to amounts
 	return field == GF_ROLL || field == GF_RATCHET || field == GF_GATE;
 }
@@ -946,6 +997,7 @@ static const char* fx_str(int field, char* buf) {
 	sprintf(buf, "%d", (v * 100 + 127) / 255);
 	return buf;
 }
+#endif
 
 const char* groove_lane_label(void) {
 	static char label[16];
@@ -964,8 +1016,10 @@ const char* groove_field_str(int field, char* buf) {
 	}
 	if (field == GF_COND)
 		return lock_step != NO_STEP ? cond_names[cond_value()] : "-";
+#if GROOVE_FX
 	if (FX_IS(field))
 		return fx_str(field, buf);
+#endif
 	u8 b = (field == GF_DJFILTER) ? pat.djfilter : (field == GF_COMP) ? pat.comp : field_byte(field);
 	switch (field) {
 	case GF_FENV:
@@ -1237,25 +1291,38 @@ int groove_tick(int clock16, int playing, int step_ticks, int recording) {
 			restart_lanes();
 		}
 		else {
+#if GROOVE_FX
 			int roll = fx_on & FX_BIT(GF_ROLL);
+#else
+			const int roll = 0;
+#endif
 			for (int l = 0; l < GROOVE_LANES; ++l) {
+#if GROOVE_FX
 				if (roll)
 					lane_pos[l] = roll_pos(l, roll_count % roll_len[fx_set[FX_ROLL] & 3]);
-				else {
+				else
+#endif
+				{
 					lane_pos[l] = next_pos(l);
 					if (lane_pos[l] == LANE_START(&pat.lane[l]))
 						lane_loop[l]++;
 				}
 				fire(l);
 			}
+#if GROOVE_FX
 			if (roll)
 				roll_count++;
+#endif
+			(void)roll;
 		}
+#if GROOVE_FX
 		ratchet_n = 0;
 		gate_phase = (fx_set[FX_GATE] == 0 && (bar_step & 1)) ? step_ticks_now : 0; // 1/8: period = 2 steps
 		if (fx_on & FX_BIT(GF_PITCHFALL)) // falls up to 24 semitones over a bar at 100 %
 			fx_pitch = maxf(fx_pitch - fx_set[FX_PITCHFALL] * (24.f / 255.f / 16.f), -24.f);
+#endif
 	}
+#if GROOVE_FX
 	else if (run)
 		gate_phase++;
 	if (run && (fx_on & FX_BIT(GF_RATCHET)) && fired) { // retrigger the step's hits, velocity rolling off
@@ -1270,6 +1337,7 @@ int groove_tick(int clock16, int playing, int step_ticks, int recording) {
 				}
 		}
 	}
+#endif
 	else if (!run && pending_slot != NO_SLOT && can_load()) {
 		load_slot(pending_slot); // stopped: change right away
 		pending_slot = NO_SLOT;
@@ -1345,6 +1413,7 @@ void groove_audio(void) {
 			dj += (int)(mod_value(&pat.mod[i], 0) * pat.mod[i].amount * (255.f / 127.f));
 	dj_eff = clampi(dj, 0, 255);
 	drums_render(pat.volume, dj_eff, pat.comp);
+#if GROOVE_FX
 	if (fx_on & FX_BIT(GF_GATE)) { // trance gate: open for the first half of each period, 2 ms ramps
 		int period = maxi((step_ticks_now * 4) >> (fx_set[FX_GATE] + 1), 2);
 		int g0 = (gate_phase % period) * 2 < period, g1 = ((gate_phase + 1) % period) * 2 < period;
@@ -1372,6 +1441,7 @@ void groove_audio(void) {
 			drum_bus_rv[i] = (short)((drum_bus_rv[i] >> sh) << sh);
 		}
 	}
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -1413,7 +1483,7 @@ void groove_draw_leds(int mode) {
 		led_ram[fi][ROW_MUTE] = gamma8(k);
 
 		for (int y = ROW_STEPS; y < 8; ++y) {
-			int idx = page * GROOVE_PAGE + (y - ROW_STEPS) * 8 + fi;
+			int idx = view_page() * GROOVE_PAGE + (y - ROW_STEPS) * 8 + fi;
 			u8 s = pat.step[lane_sel][idx];
 			int inloop = ((idx - start) & 63) < sel->length;
 			k = inloop ? 14 : 0;
@@ -1451,15 +1521,19 @@ void groove_draw_oled(int mode) {
 		fdrawstr(0, 18, F_8, "%d locked  cond %s  click=clear", n, cn);
 		return;
 	}
-	if (sel->length > GROOVE_PAGE || page)
-		fdrawstr(0, 0, F_16_BOLD, "%d %s p%d", lane_sel + 1, drum_model_names[sel->snd.model], page + 1);
+	int vp = view_page();
+	if (page_in_loop((vp + 1) & 3) || page_in_loop((vp + 2) & 3)) // more than one page
+		fdrawstr(0, 0, F_16_BOLD, "%d %s p%d", lane_sel + 1, drum_model_names[sel->snd.model], vp + 1);
 	else
 		fdrawstr(0, 0, F_16_BOLD, "%d %s", lane_sel + 1, drum_model_names[sel->snd.model]);
+#if GROOVE_FX
 	if (fx_on) {
 		int f = __builtin_ctz(fx_on);
 		fdrawstr(-128, 2, F_12, fx_short[f < FX_COUNT ? f : 0]);
 	}
-	else if (pending_slot != NO_SLOT)
+	else
+#endif
+	if (pending_slot != NO_SLOT)
 		fdrawstr(-128, 2, F_12, "P%d>%d", cur_slot + 1, pending_slot + 1);
 	else if (drums_pending == PEND_DRUMS)
 		fdrawstr(-128, 2, F_12, ">bar");

@@ -23,6 +23,12 @@ extern volatile unsigned char groove_grid;
 #define GROOVE_IS_ON (groove_active)
 #define GROOVE_GRID (groove_grid)
 
+// Momentary drum FX (roll, ratchet, reverse, pitch fall, gate, crush on the Arp / Seq
+// rows, phase 14). Switched off for now; build with -DGROOVE_FX=1 to bring them back.
+#ifndef GROOVE_FX
+#define GROOVE_FX 0
+#endif
+
 // Use for one-line hooks in existing code: GROOVE_HOOK(groove_foo());
 #define GROOVE_HOOK(stmt) do { stmt; } while (0)
 

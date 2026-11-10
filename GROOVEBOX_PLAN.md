@@ -774,3 +774,17 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 | Phase 13 default | 405,620 | 16,268 | 30,524 |
 | **Phase 14 default** | **408,124** | **13,764** | **30,564** |
 | Phase 14 STATS | 408,676 | 13,212 | 30,592 |
+
+### Phase 15: defaults, effects parked, pages limited to the lane loop, silent Plinky pads (done)
+- **Defaults**: Acid starting sound level 50 %. Default kit O.Hat: decay 40 %, LP 60, filter envelope +70 (new or cleared patterns; existing patterns keep their sounds).
+- **Starting sound rule** for Bass / Acid: applied when the lane comes from a drum model (the model that had rested for 400 ms before the scroll), or when its Filter Env is off. Coming from Bass / Acid keeps the sound; a quick overshoot while scrolling (Acid → Snare → Acid) keeps it too and only makes a new acid line.
+- **Momentary FX parked**: compiled out with `GROOVE_FX` (groove.h, default 0); the code and its test (`t7.c`, build with `-DGROOVE_FX=1`) stay. The Arp / Seq row pads (except the order pads = Condition) are silent in the drum grid again.
+- **Step pages follow the lane loop**: Prev / Next short press only moves to pages the selected lane's loop reaches (16 steps = no paging, 1–40 = pages 1–3, wrapping). The grid never shows a page outside the loop; if the loop shrinks or another lane is selected, it shows the loop's first page. `pN` in the OLED title only when the loop spans more than one page.
+- **Plinky-only pads silent**: the "Plinky pads only" message is gone; such pads simply do nothing in the drum grid. Additionally blocked now: MIDI in / out channel, CV quantise, input level, input wet/dry, accelerometer sensitivity, stereo width (and the unused reverb / jitter slots). Still reachable in the drum grid: drum lane params, Condition, Delay and Reverb rows (incl. tempo, swing), LFO / CV rows A, B, X, Y, synth level, wet/dry, DJ filter, drum volume, headphone volume, and the two Groove toggle pads.
+- Host tests: t3 16, t4 15, t5 20, t6 17, t7 (FX on) 27, all pass. `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 14 default | 408,124 | 13,764 | 30,564 |
+| **Phase 15 default** | **407,528** | **14,360** | **30,540** |
+| Phase 15 STATS | 408,112 | 13,776 | 30,572 |
