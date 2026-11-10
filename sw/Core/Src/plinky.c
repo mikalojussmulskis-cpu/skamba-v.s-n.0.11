@@ -1666,14 +1666,17 @@ void processmidimsg(u8 msg, u8 d1, u8 d2) {
 			midi24ppqncounter = 5; // 2020-02-26: Used to be 0, changed to 5: https://discord.com/channels/784856175937585152/784884878994702387/814951459581067264
 			playmode = PLAYING;
 			//		seq_step(1);
+			if (GROOVE_IS_ON) groove_transport(1); // GROOVE HOOK
 		}
 		else if (msg == 0xfb) { // continue
 			playmode = PLAYING;
+			if (GROOVE_IS_ON) groove_transport(1); // GROOVE HOOK
 		}
 		else if (msg == 0xfc) { // stop
 			midi24ppqncounter = 0;
 			playmode = PLAY_STOPPED;
 			OnLoop();
+			if (GROOVE_IS_ON) groove_transport(0); // GROOVE HOOK
 		}
 		else if (msg == 0xf8) {
 			// midi clock! 24ppqn, we want 4, so divide by 6.		
@@ -1932,7 +1935,14 @@ void DoAudio(u32 *dst, u32 *audioin) {
 	}
 	// do the clock first so we can update the sequencer step etc
 	bool gotclock = update_clock();
-	if (GROOVE_IS_ON) groove_tick(gotclock && ticks_since_clock == 0, isplaying(), playmode == PLAY_PREVIEW, last_clock_period, recording); // GROOVE HOOK
+#if GROOVE_ENABLE
+	if (GROOVE_IS_ON && groove_tick(gotclock && ticks_since_clock == 0, isplaying(), last_clock_period, recording)) { // GROOVE HOOK: drum transport; Plinky's start was waiting for the drums' bar
+		u8 loopstart_step = (rampreset.loopstart_step_no_offset + step_offset) & 63;
+		set_cur_step(loopstart_step, false);
+		playmode = PLAYING;
+		seq_step(1);
+	}
+#endif
 	static u8 whichhalf = 0;
 	// start of a full update of all strings
 	if (!whichhalf) {

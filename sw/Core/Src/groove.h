@@ -49,8 +49,17 @@ void groove_pad_up(int fi);                               // finger lifted
 // --- sequencer (audio ISR) --------------------------------------------------
 // every block (2.048 ms). clock16 = a 16th-note clock pulse this block,
 // step_ticks = blocks per 16th note, recording = Plinky's record flag
-void groove_tick(int clock16, int playing, int preview, int step_ticks, int recording);
+// playing = Plinky's sequencer is running. Returns 1 when the Plinky sequencer
+// must start now (its start was waiting for the drums' next bar).
+int  groove_tick(int clock16, int playing, int step_ticks, int recording);
 void groove_reset(void); // transport reset (Prev while playing, MIDI start, ...)
+// --- transport: the drums have their own play/stop -------------------------
+// Play pressed: in the drum grid it starts/stops the drums; in the Plinky view
+// with the drums running it makes Plinky start on the drums' next bar.
+// Returns 1 when handled (Plinky's own play logic must be skipped).
+int  groove_play_button(int plinky_playing);
+void groove_transport(int on); // MIDI / clock start, stop: both sequencers
+int  groove_play_led(int plinky_playing, int glow); // Play LED (drums in the grid, Plinky otherwise)
 // finger_synth_update(), right after the touch is read (drum grid only):
 // live drum hits (row 1 = loudest .. row 5 = quietest, recorded when Record +
 // Play are on); swallows the touch so it doesn't play the Plinky voice

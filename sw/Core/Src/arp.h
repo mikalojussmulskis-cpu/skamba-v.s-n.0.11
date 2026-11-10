@@ -476,6 +476,7 @@ int update_clock(void) { // returns 1 for clock, 2 for half clock, 0 for neither
 			u8 loopstart_step = (rampreset.loopstart_step_no_offset + step_offset) & 63;
 			set_cur_step(loopstart_step, true);
 			playmode = PLAYING;
+			if (GROOVE_IS_ON) groove_transport(1); // GROOVE HOOK
 		}
 		external_clock_enable = true;
 	}
@@ -516,6 +517,7 @@ int update_clock(void) { // returns 1 for clock, 2 for half clock, 0 for neither
 		// we probably don't want to keep playing the sequencer through a clock source change
 		if ((playmode == PLAYING) || (playmode == PLAY_WAITING_FOR_CLOCK_START) || (playmode == PLAY_WAITING_FOR_CLOCK_STOP))
 			playmode = PLAY_STOPPED;
+		if (GROOVE_IS_ON) groove_transport(0); // GROOVE HOOK
 	}
 
 	//////////////////////////////////////////// internal clock

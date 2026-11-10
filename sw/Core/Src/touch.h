@@ -332,6 +332,9 @@ void on_shift_down(void) {
 
 	switch (shift_down) {
 	case SB_PLAY: // play/pause
+#if GROOVE_ENABLE
+		if (GROOVE_IS_ON && groove_play_button(isplaying())) break; // GROOVE HOOK: the drums' own play/stop, synced starts
+#endif
 		if (playmode == PLAY_WAITING_FOR_CLOCK_STOP) {
 			playmode = PLAY_STOPPED;
 			OnLoop();

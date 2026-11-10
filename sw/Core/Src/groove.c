@@ -128,11 +128,13 @@ static u8 flash[GROOVE_LANES];    // LED/OLED activity, decays
 static u8 lane_sel;               // lane being edited
 static u8 page;                   // 16-step page shown on R7/R8
 static u8 running;                // transport was running last tick
-static u8 playing_now, recording_now;
+static u8 recording_now;
+static u8 drums_play;             // drum transport running (own Play button in the drum grid)
+static u8 drums_pending;          // PEND_*: a start waiting for the next bar
 static u8 gate_len = 8;
 static u8 step_ticks_now = 60;
 static u8 ticks_in_step;
-static u16 master_step;           // 16ths since start, for bar-aligned pattern changes
+static u16 bar_step;              // shared bar clock: 16ths since the first sequencer started
 static u8 tickdiv;
 static u8 live_down;              // bitmask: drum pad touched last update
 static u8 skip_next;              // bitmask: live-recorded onto the next step, don't play it twice
@@ -178,6 +180,7 @@ static void stop_sound(void) {
 	memset(gate, 0, sizeof(gate));
 	skip_next = 0;
 	running = 0;
+	drums_play = drums_pending = 0;
 	drums_stop_all();
 }
 
@@ -484,7 +487,7 @@ static int next_pos(int l) {
 
 // Record + Play: write a live hit onto the nearest step
 static void live_record(int l, int vel) {
-	if (!recording_now || !playing_now || !running)
+	if (!recording_now || !drums_play || !running)
 		return;
 	int s = lane_pos[l];
 	if (ticks_in_step * 2 >= step_ticks_now) { // closer to the next step
@@ -836,10 +839,56 @@ static void restart_lanes(void) {
 
 void groove_reset(void) {
 	running = 0; // next tick restarts all lanes from their first step
+	bar_step = 0;
 }
 
-void groove_tick(int clock16, int playing, int preview, int step_ticks, int recording) {
-	playing_now = playing;
+// Transport. The drums have their own play/stop: the Play button while the
+// drum grid is shown. In the Plinky view the button works as usual. Both
+// sequencers count the same bar clock (bar_step), anchored where the first of
+// them started; the second one to start waits for the next bar so they line up.
+enum { PEND_NONE, PEND_DRUMS, PEND_PLINKY };
+static inline u8 gamma8(int i);
+
+int groove_play_button(int plinky_playing) {
+	if (GROOVE_GRID) {
+		if (drums_pending == PEND_DRUMS)
+			drums_pending = PEND_NONE; // cancel the waiting start
+		else if (drums_play) {
+			drums_play = 0; // stop: hits already sounding ring out
+			memset(gate, 0, sizeof(gate));
+		}
+		else
+			drums_pending = PEND_DRUMS; // starts now, or on Plinky's next bar
+		return 1;
+	}
+	if (drums_pending == PEND_PLINKY) {
+		drums_pending = PEND_NONE;
+		return 1;
+	}
+	if (!plinky_playing && drums_play) {
+		drums_pending = PEND_PLINKY; // Plinky starts on the drums' next bar
+		return 1;
+	}
+	return 0;
+}
+
+void groove_transport(int on) {
+	drums_pending = PEND_NONE;
+	if (on)
+		drums_play = 1;
+	else {
+		drums_play = 0;
+		memset(gate, 0, sizeof(gate));
+	}
+}
+
+int groove_play_led(int plinky_playing, int glow) {
+	if (drums_pending == (GROOVE_GRID ? PEND_DRUMS : PEND_PLINKY))
+		return ((millis() >> 7) & 1) ? 255 : 0; // waiting for the bar
+	return (GROOVE_GRID ? drums_play : plinky_playing) ? gamma8(glow) : 0;
+}
+
+int groove_tick(int clock16, int playing, int step_ticks, int recording) {
 	recording_now = recording;
 	step_ticks_now = clampi(step_ticks, 1, 255);
 	if (ticks_in_step < 255)
@@ -856,20 +905,34 @@ void groove_tick(int clock16, int playing, int preview, int step_ticks, int reco
 	// the next step, so the next hit is seen as a new trigger
 	gate_len = clampi(mini(step_ticks / 2, 250), 2, maxi(2, step_ticks - 3));
 
-	int run = playing || preview;
+	// shared bar clock, and the starts waiting for it
+	if (clock16 && (playing || drums_play))
+		bar_step++;
+	int bar = clock16 && (bar_step & 15) == 0;
+	int start_plinky = 0;
+	if (drums_pending == PEND_DRUMS && (!playing || bar)) {
+		drums_pending = PEND_NONE;
+		drums_play = 1;
+	}
+	else if (drums_pending == PEND_PLINKY && (!drums_play || bar)) {
+		drums_pending = PEND_NONE;
+		start_plinky = 1;
+	}
+	if (!playing && !drums_play)
+		bar_step = 0; // the next start anchors the bar clock
+
+	int run = drums_play;
 	if (run && !running) {
 		if (pending_slot != NO_SLOT && can_load()) {
 			load_slot(pending_slot);
 			pending_slot = NO_SLOT;
 		}
-		master_step = 0;
 		ticks_in_step = 0;
 		restart_lanes();
 	}
-	else if (playing && clock16) {
-		master_step++;
+	else if (run && clock16) {
 		ticks_in_step = 0;
-		if ((master_step & 15) == 0 && pending_slot != NO_SLOT && can_load()) {
+		if (bar && pending_slot != NO_SLOT && can_load()) {
 			load_slot(pending_slot); // pattern change on the bar
 			pending_slot = NO_SLOT;
 			restart_lanes();
@@ -886,6 +949,7 @@ void groove_tick(int clock16, int playing, int preview, int step_ticks, int reco
 		pending_slot = NO_SLOT;
 	}
 	running = run;
+	return start_plinky;
 }
 
 void groove_finger(int fi, int* pressure, int* position) {
@@ -1012,6 +1076,8 @@ void groove_draw_oled(void) {
 	fdrawstr(0, 0, F_16_BOLD, "%d %s", lane_sel + 1, drum_model_names[sel->snd.model]);
 	if (pending_slot != NO_SLOT)
 		fdrawstr(-128, 2, F_12, "P%d>%d", cur_slot + 1, pending_slot + 1);
+	else if (drums_pending == PEND_DRUMS)
+		fdrawstr(-128, 2, F_12, "P%d >bar", cur_slot + 1);
 	else
 		fdrawstr(-128, 2, F_12, "%sP%d %d/%d", recording_now ? "\x9c" : "", cur_slot + 1,
 			lane_pos[lane_sel] + 1, sel->length);

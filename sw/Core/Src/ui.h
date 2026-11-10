@@ -1193,6 +1193,9 @@ void editmode_ui(void) {
 	}
 	if (GROOVE_GRID && editmode == EM_PLAY) groove_draw_leds(); // GROOVE HOOK
 	{
+#if GROOVE_ENABLE
+		if (GROOVE_IS_ON) led_ram[8][SB_PLAY] = groove_play_led(playing, clockglow); else // GROOVE HOOK: drum transport LED in the grid
+#endif
 		led_ram[8][SB_PLAY] = playing ? led_gamma(clockglow) : 0;
 		led_ram[8][SB_PREV] = (editmode == EM_START) ? 255 : 0;
 		led_ram[8][SB_NEXT] = (editmode == EM_END) ? 255 : 0;
