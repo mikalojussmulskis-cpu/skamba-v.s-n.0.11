@@ -860,3 +860,15 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 |---|---|---|---|
 | Phase 20 default | 407,908 | 13,980 | 30,544 |
 | **Phase 21 default** | **408,432** | **13,456** | **30,544** |
+
+### Phase 22: cat + boombox stage, thin meters, plain lane title (done)
+- **Title**: just the lane and model ("8 Cowbell"), the page number (p1–p4) is gone; the widest title ends at x 63.
+- **Meters**: back to 16 px per lane but only up to 5 px tall (y 27–31); muted = dotted, selected = line at y 25.
+- **Stage** (x 66–127, y 0–23): a bigger cat (42 × 24, six poses: stand, nod, tail swish, paw, jump, wince; the two front legs 5 px apart so they read as two) and a boombox drawn from lines and circles. Beat: stand, nod, swish, nod, paw, nod, swish, nod (one pose per 16th). The cat jumps and the speakers pump while a kick sounds; it winces on other loud hits (hats excluded); the tape reels turn with the steps. Still while stopped or no unmuted lane has steps.
+- **Status** (pattern change, waiting for the bar, recording) replaces the boombox and is drawn on a black box at the top right, over the tail if needed.
+- Mac app preview shows the stage. Host tests pass (t8: stage stays in its area, jumps / pumps on a kick, poses change, still when stopped). `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 21 default | 408,432 | 13,456 | 30,544 |
+| **Phase 22 default** | **409,692** | **12,196** | **30,544** |

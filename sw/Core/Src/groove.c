@@ -1559,43 +1559,75 @@ void groove_draw_leds(int mode) {
 	}
 }
 
-// the dancing cat: 32 x 16 at the bottom right of the drum grid screen. One pose
-// per 16th of the beat (stand, bob, tail up, bob), a jump on every kick, a wince
-// on every other loud hit; still while the drums are stopped or no lane has steps.
-enum { CAT_STAND, CAT_BOB, CAT_TAIL, CAT_JUMP, CAT_HIT };
-static const u32 cat_pose[5][16] = {
+// the stage: a dancing cat (42 x 24, six poses) and a boombox, right of the lane
+// name (x 66..127, y 0..23). The cat takes one pose per 16th (stand, nod, tail
+// swish, nod, paw, nod, swish, nod), jumps while a kick sounds and winces on other
+// loud hits; the boombox speakers pump with the kicks and its reels turn with the
+// steps. Everything stands still while the drums are stopped or no unmuted lane
+// has steps. Drawn with putpixel only.
+#define STAGE_X 66
+enum { CAT_STAND, CAT_NOD, CAT_SWISH, CAT_PAW, CAT_JUMP, CAT_WINCE };
+static const uint64_t cat_pose[6][24] = {
 	{ // stand
-		0x00000000, 0x63000000, 0x55000002, 0x41000004, 0x55000008, 0x41fffff0, 0x2a000008, 0x1c000004, 0x10000004, 0x23ffffc4, 0x24000014, 0x24000018, 0x24000008, 0x24800110, 0x24800110, 0x3cc00190 },
+		0x0000000000000000ull, 0x0000000000000000ull, 0x2010000000800000ull, 0x3030000000400000ull, 0x2850000000800000ull, 0x3ff0000000800000ull, 0x2010000001000000ull, 0x4008000002000000ull, 0x4cc8000002000000ull, 0x4ccfffffe4000000ull, 0xc30c000018000000ull, 0x4488000010000000ull, 0x2010000010000000ull, 0x1fe0000020000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x285fff8fa0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x3c780078f0000000ull },
 	{ // bob
-		0x00000000, 0x00000000, 0x63000002, 0x55000004, 0x41000008, 0x55fffff0, 0x41800008, 0x2a000004, 0x1c000004, 0x33ffffc4, 0x24000014, 0x24000018, 0x24000008, 0x24800110, 0x24800110, 0x3cc00190 },
-	{ // tail up
-		0x0000000c, 0x63000012, 0x55000012, 0x41000020, 0x55000020, 0x41ffffc0, 0x2a000040, 0x1c000080, 0x10000080, 0x23ffffc0, 0x24000000, 0x24000000, 0x24000008, 0x24800110, 0x24800110, 0x3cc00190 },
+		0x0000000000000000ull, 0x0000000000000000ull, 0x0000000000800000ull, 0x0000000000400000ull, 0x2010000000800000ull, 0x3030000000800000ull, 0x2850000001000000ull, 0x3ff0000002000000ull, 0x2010000002000000ull, 0x400fffffe4000000ull, 0x4cc8000018000000ull, 0x4cc8000010000000ull, 0xc30c000010000000ull, 0x4488000020000000ull, 0x30100000a0000000ull, 0x1fe00000a0000000ull, 0x10000000a0000000ull, 0x285fff8fa0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x3c780078f0000000ull },
+	{ // swish
+		0x0000000000000000ull, 0x0000000000000000ull, 0x2010000000000000ull, 0x3030000000000000ull, 0x28500000c0000000ull, 0x3ff0000120000000ull, 0x2010000010000000ull, 0x4008000008000000ull, 0x4cc8000004000000ull, 0x4ccfffffe4000000ull, 0xc30c000018000000ull, 0x4488000010000000ull, 0x2010000010000000ull, 0x1fe0000020000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x285fff8fa0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x3c780078f0000000ull },
+	{ // paw
+		0x0000000000000000ull, 0x0000000000000000ull, 0x2010000000800000ull, 0x3030000000400000ull, 0x2850000000800000ull, 0x3ff0000000800000ull, 0x2010000001000000ull, 0x4008000002000000ull, 0x4cc8000002000000ull, 0x4ccfffffe4000000ull, 0xc30c000018000000ull, 0x4488000010000000ull, 0x2010000010000000ull, 0x1fe0000020000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x505fff8fa0000000ull, 0x50500050a0000000ull, 0x78500050a0000000ull, 0x00500050a0000000ull, 0x00500050a0000000ull, 0x00500050a0000000ull, 0x00780078f0000000ull },
 	{ // jump
-		0x63000000, 0x55000002, 0x41000004, 0x55000008, 0x41000030, 0x2a000008, 0x1c000004, 0x10000004, 0x23ffffc4, 0x24000014, 0x24000018, 0x3ce003d8, 0x18600180, 0x00000000, 0x24400090, 0x00000000 },
+		0x2010000000000000ull, 0x3030000000000000ull, 0x2850000000000000ull, 0x3ff0000000000000ull, 0x2010000000000000ull, 0x4008000000000000ull, 0x4cc8000000400000ull, 0x4ccfffffe0800000ull, 0xc30c000013000000ull, 0x448800001c000000ull, 0x2010000010000000ull, 0x1fe0000020000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x285fff8fa0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x3c780078f0000000ull, 0x0000000000000000ull, 0x0000000000000000ull, 0x0000000000000000ull, 0x0000000000000000ull, 0x0000000000000000ull },
 	{ // hit
-		0x00000000, 0x00000000, 0x63000002, 0x55000004, 0x41000008, 0x41fffff0, 0xaa000008, 0x1c000004, 0x10000004, 0x23ffffc4, 0x24000014, 0x24000018, 0x24000008, 0x24800110, 0x24800110, 0x3cc00190 },};
-static void draw_cat(void) {
-	int pose = CAT_STAND;
-	int has_steps = 0;
-	for (int l = 0; l < GROOVE_LANES && !has_steps; ++l)
+		0x0000000000000000ull, 0x0000000000000000ull, 0x0000000000000000ull, 0x0000000000000000ull, 0x4008000000000000ull, 0xfffc000000000000ull, 0x2010000000000000ull, 0x4008000000000000ull, 0x4848000000400000ull, 0x448fffffe0800000ull, 0xcb4c000013000000ull, 0x430800001c000000ull, 0x2790000010000000ull, 0x1fe0000020000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x285fff8fa0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x28500050a0000000ull, 0x3c780078f0000000ull },
+};
+
+static void px_hl(int x1, int x2, int y) { for (int x = x1; x <= x2; ++x) putpixel(x, y, 1); }
+static void px_vl(int x, int y1, int y2) { for (int y = y1; y <= y2; ++y) putpixel(x, y, 1); }
+static void px_ring(int cx, int cy, int r) { // midpoint circle
+	int x = r, y = 0, e = 1 - r;
+	while (x >= y) {
+		putpixel(cx + x, cy + y, 1); putpixel(cx - x, cy + y, 1); putpixel(cx + x, cy - y, 1); putpixel(cx - x, cy - y, 1);
+		putpixel(cx + y, cy + x, 1); putpixel(cx - y, cy + x, 1); putpixel(cx + y, cy - x, 1); putpixel(cx - y, cy - x, 1);
+		++y;
+		if (e < 0) e += 2 * y + 1; else { --x; e += 2 * (y - x) + 1; }
+	}
+}
+
+static void draw_stage(int boombox) {
+	int pose = CAT_STAND, kick = 0, moving = 0;
+	for (int l = 0; l < GROOVE_LANES && !moving; ++l)
 		if (!(pat.lane[l].flags & LANE_MUTE))
 			for (int i = 0; i < GROOVE_STEPS; ++i)
-				if (pat.step[l][i] & STEP_TRIG) { has_steps = 1; break; }
-	if (running && has_steps) {
-		static const u8 beat[4] = { CAT_STAND, CAT_BOB, CAT_TAIL, CAT_BOB };
-		pose = beat[bar_step & 3];
+				if (pat.step[l][i] & STEP_TRIG) { moving = running; break; }
+	if (moving) {
+		static const u8 beat[8] = { CAT_STAND, CAT_NOD, CAT_SWISH, CAT_NOD, CAT_PAW, CAT_NOD, CAT_SWISH, CAT_NOD };
+		pose = beat[bar_step & 7];
 		for (int l = 0; l < GROOVE_LANES; ++l) {
 			int m = pat.lane[l].snd.model;
-			if ((m == DM_KICK || m == DM_KICK2) && flash[l] > 60) { pose = CAT_JUMP; break; }
-			if (flash[l] > 120 && m != DM_CHAT && m != DM_OHAT) pose = CAT_HIT;
+			if ((m == DM_KICK || m == DM_KICK2) && flash[l] > 60) { pose = CAT_JUMP; kick = 1; break; }
+			if (flash[l] > 120 && m != DM_CHAT && m != DM_OHAT) pose = CAT_WINCE;
 		}
 	}
-	for (int y = 0; y < 16; ++y) {
-		u32 row = cat_pose[pose][y];
-		for (int x = 0; x < 32; ++x)
-			if (row & (0x80000000u >> x))
-				putpixel(96 + x, 16 + y, 1);
+	for (int y = 0; y < 24; ++y) {
+		uint64_t row = cat_pose[pose][y];
+		for (int x = 0; x < 42; ++x)
+			if (row & (0x8000000000000000ull >> x))
+				putpixel(STAGE_X + x, y, 1);
 	}
+	if (!boombox)
+		return;
+	const int bx = STAGE_X + 43, by = 10;
+	px_hl(bx, bx + 18, by); px_hl(bx, bx + 18, by + 12); px_vl(bx, by, by + 12); px_vl(bx + 18, by, by + 12); // box
+	px_hl(bx + 5, bx + 13, by - 3); px_vl(bx + 5, by - 3, by); px_vl(bx + 13, by - 3, by);                   // handle
+	for (int s = 0; s < 2; ++s) {                                                                             // speakers
+		int sx = bx + 4 + s * 10;
+		px_ring(sx, by + 7, 3 + kick);
+		putpixel(sx, by + 7, 1);
+	}
+	px_hl(bx + 7, bx + 11, by + 2); px_hl(bx + 7, bx + 11, by + 4); px_vl(bx + 7, by + 2, by + 4); px_vl(bx + 11, by + 2, by + 4); // tape
+	int r = moving && (bar_step & 1);
+	putpixel(bx + 8 + r, by + 3, 1); putpixel(bx + 10 - r, by + 3, 1);                                         // reels
 }
 
 void groove_draw_oled(int mode) {
@@ -1617,35 +1649,41 @@ void groove_draw_oled(int mode) {
 		fdrawstr(0, 18, F_8, "%d locked  cond %s  click=clear", n, cn);
 		return;
 	}
-	int vp = view_page();
-	if (page_in_loop((vp + 1) & 3) || page_in_loop((vp + 2) & 3)) // more than one page
-		fdrawstr(0, 0, F_16_BOLD, "%d %s p%d", lane_sel + 1, drum_model_names[sel->snd.model], vp + 1);
-	else
-		fdrawstr(0, 0, F_16_BOLD, "%d %s", lane_sel + 1, drum_model_names[sel->snd.model]);
+	fdrawstr(0, 0, F_16_BOLD, "%d %s", lane_sel + 1, drum_model_names[sel->snd.model]);
+	// one thin activity meter per lane (16 px wide, up to 5 px tall); dotted = muted, line above = selected
+	for (int l = 0; l < GROOVE_LANES; ++l) {
+		int x0 = l * 16 + 1, x1 = x0 + 13;
+		if (pat.lane[l].flags & LANE_MUTE)
+			halfrectangle(x0, 27, x1, 32);
+		else
+			fillrectangle(x0, 31 - (flash[l] * 4) / 255, x1, 32);
+		if (l == lane_sel)
+			hline(x0, 25, x1, 1);
+	}
+	// a status (pattern change, waiting for the bar, recording) takes the boombox's corner
+	char st[16];
+	st[0] = 0;
 #if GROOVE_FX
 	if (fx_on) {
 		int f = __builtin_ctz(fx_on);
-		fdrawstr(-128, 2, F_12, fx_short[f < FX_COUNT ? f : 0]);
+		sprintf(st, "%s", fx_short[f < FX_COUNT ? f : 0]);
 	}
 	else
 #endif
 	if (pending_slot != NO_SLOT)
-		fdrawstr(-128, 2, F_12, "P%d>%d", cur_slot + 1, pending_slot + 1);
+		sprintf(st, "P%d>%d", cur_slot + 1, pending_slot + 1);
 	else if (drums_pending == PEND_DRUMS)
-		fdrawstr(-128, 2, F_12, ">bar");
+		sprintf(st, ">bar");
 	else if (recording_now)
-		fdrawstr(-128, 2, F_12, "\x9c");
-	// one activity meter per lane (12 px each, the cat has the right 32 px); dithered = muted, top line = selected
-	for (int l = 0; l < GROOVE_LANES; ++l) {
-		int x0 = l * 12 + 1, x1 = x0 + 9;
-		if (pat.lane[l].flags & LANE_MUTE)
-			halfrectangle(x0, 20, x1, 32);
-		else
-			fillrectangle(x0, 31 - (flash[l] * 11) / 255, x1, 32);
-		if (l == lane_sel)
-			hline(x0, 18, x1, 1);
+		sprintf(st, "\x9c");
+	draw_stage(!st[0]);
+	if (st[0]) { // on a black box, over the cat's tail
+		int w = strwidth(F_12, st) + 2;
+		for (int y = 0; y < 16; ++y)
+			for (int x = 128 - w; x < 128; ++x)
+				putpixel(x, y, 0);
+		drawstr(-128, 2, F_12, st);
 	}
-	draw_cat();
 }
 
 #endif // GROOVE_ENABLE

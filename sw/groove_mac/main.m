@@ -241,7 +241,7 @@ static void audio_cb(void* ud, AudioQueueRef q, AudioQueueBufferRef b) {
 	[self button:@"end +" frame:NSMakeRect(636, by + 28, 66, 26) action:@selector(loopEnd:)].tag = 1;
 	[self button:@"Clear lane" frame:NSMakeRect(10, by, 110, 28) action:@selector(clearLane:)];
 	status = [self label:@"" frame:NSMakeRect(10, by + 34, 400, 20) size:13];
-	[self label:@"Plinky screen (meters + cat; text not shown)" frame:NSMakeRect(10, 560, 384, 18) size:11];
+	[self label:@"Plinky screen (meters, cat and boombox; text not shown)" frame:NSMakeRect(10, 560, 384, 18) size:11];
 	oled = [[OledView alloc] initWithFrame:NSMakeRect(10, 560 + 20, 384, 96)];
 	[cv addSubview:oled];
 	status.textColor = rgb(0xffb060);

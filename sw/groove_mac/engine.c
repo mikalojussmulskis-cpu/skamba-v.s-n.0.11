@@ -23,6 +23,7 @@ void halfrectangle(int x1, int y1, int x2, int y2) { for (int y = y1; y < y2; ++
 void hline(int x1, int y, int x2, int c) { for (int x = x1; x < x2; ++x) putpixel(x, y, c); }
 int fdrawstr(int x, int y, EFont f, const char* fmt, ...) { (void)x; (void)y; (void)f; (void)fmt; return 0; }
 int drawstr(int x, int y, EFont f, const char* b) { (void)x; (void)y; (void)f; (void)b; return 0; }
+int strwidth(EFont f, const char* b) { (void)f; return (int)strlen(b) * 6; } // text is not drawn here
 
 uint32_t plat_ms(void); void plat_lock(void); void plat_unlock(void); // platform.c
 static u32 eng_millis(void) { return plat_ms(); }
