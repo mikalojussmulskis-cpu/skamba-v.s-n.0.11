@@ -872,3 +872,6 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 |---|---|---|---|
 | Phase 21 default | 408,432 | 13,456 | 30,544 |
 | **Phase 22 default** | **409,692** | **12,196** | **30,544** |
+
+### Phase 23: no Plinky page names on drum pads (done)
+- The parameter screen drew Plinky's page name ("Env1", "Sound" ...) before the Groove hook replaced it, so drum pads (e.g. Shift A + Decay) showed "Env1". A separate hook now sets the label before it is drawn: lane fields show `Drum 3` (or `Lock step 5`), bus fields (volume, compressor, drive, DJ filter) `all drums`. Pads still reachable in the drum grid that are real Plinky effects (delay, reverb, LFO / CV, mixer, tempo) keep their own page names. The first attempt moved a shared line and broke the `GROOVE=0` identity; the final version leaves the original lines in place, so it is byte-identical again.

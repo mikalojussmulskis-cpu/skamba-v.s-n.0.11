@@ -888,14 +888,15 @@ void editmode_ui(void) {
 			case P_CV_QUANT:
 			case P_HEADPHONE: pagename = "system"; break;
 			}
+#if GROOVE_ENABLE
+			if (groove_field_for_param(pi) >= 0) // GROOVE HOOK: drum lane / drum bus label instead of Plinky's page ("Env1" ...)
+				pagename = groove_field_page(groove_field_for_param(pi));
+#endif
 			drawstr(0, 0, F_12, (ui_edit_mod == 0) ? pagename : modnames[ui_edit_mod]);
 			const char* pn = paramnames[pi];
 #if GROOVE_ENABLE
-			if (groove_field_for_param(pi) >= 0) { // GROOVE HOOK: drum lane / drum volume names
+			if (groove_field_for_param(pi) >= 0) // GROOVE HOOK: drum lane / drum volume names
 				pn = groove_field_name(groove_field_for_param(pi));
-				if (ui_edit_mod == 0)
-					pagename = groove_field_page(groove_field_for_param(pi));
-			}
 #endif
 			int pw = strwidth(F_16_BOLD, pn);
 			if (pw>64) 
