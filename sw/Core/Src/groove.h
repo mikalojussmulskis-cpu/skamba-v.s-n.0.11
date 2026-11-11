@@ -81,6 +81,10 @@ void groove_finger(int fi, int* pressure, int* position);
 // then mixes in (dry after the synth compressor, plus delay / reverb sends)
 void groove_audio(void);
 extern short drum_bus_dry[64], drum_bus_dl[32], drum_bus_rv[32];
+// FX loop, last step: Plinky's stereo output sample (low half left, high half right)
+// plus the dry drum sample, through a soft knee (linear below 80 % of full scale)
+// instead of Plinky's hard saturation, so loud synth + loud drums round off, not clip
+unsigned long groove_mix(unsigned long lr, int drum);
 extern int groove_rv_in; // drum reverb send for the current Reverb2() call
 
 // --- drum lane sound, edited through printed param pads in the drum grid ----

@@ -911,3 +911,18 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 |---|---|---|---|
 | v.s-n.0.1 (phase 24) | 410,520 | 11,368 | 30,552 |
 | **phase 25** | **410,812** | **11,076** | **30,576** |
+
+### Phase 26: bus modulation, plain bus pads, no play/record banner, stronger compressor, level match with Plinky, record icon (done)
+- **Modulation of the drum bus controls**: knobs A / B and CV / LFOs X / Y can now be mapped to Drum Vol, Drum Comp, Drum Drive and Drum Rate (as the DJ filter already could); stored per pattern with lane = all. Env, pressure and random can't modulate the whole bus (message "all drums / knobs, CV, LFOs only").
+- **Plain 0–100 % bus pads**: in the drum grid the bus pads sit on Plinky pads with stepped or signed ranges (CV quantise = 3 steps, MIDI channels = 16 steps, accel sensitivity = signed); the encoder and the slider now treat them as plain 0–100 % (one byte per detent; the slider uses its whole travel for Drive).
+- **Drum Rate on both shifts**: Params 1 + the mixer pad between the DJ filter (HPF) and the compressor, and Params 2 + the same pad (between Drum Vol and Drum Drive).
+- **No "play" / "record" banner** in Groove mode: pressing Play or a short Record press keeps the normal screen (a jump past Plinky's banner chain in `editmode_ui`; holding Record for knob recording still shows its text).
+- **Stronger compressor**: threshold range 36 dB (was 30), ratio up to 10:1 (8:1), attack 0.3 ms (1 ms), release 50 ms (80 ms), make-up so the level stays about the same. Measured on bass + snare + hats (`comp2.c`): loud–quiet spread at 30 / 60 / 100 % 14.5 / 12.5 / 12.4 dB (was 15.7 / 14.6 / 13.8), level −12.5 / −15.1 / −12.6 dBFS (was −11.7 / −14.2 / −16.8); a held bass at 30 % gets 1.9 % distortion (0.9 % before; 20–30 ms releases would reach 6–13 % at 60 %).
+- **Level match with Plinky** (`level.c`, Plinky's synth modelled exactly: saw chord → its sigmoid → its compressor at Synth level 50 %): the synth sits at RMS −12.5 / −11.1 dBFS with peaks about −10 dBFS whatever is played; the drums had peaks near full scale, so loud synth + loud drums hard-clipped in Plinky's saturating add (556 samples in 3 s at pad velocity). Fixes: (1) in Groove mode the final synth + drum add goes through a **soft knee** (linear below 80 % of full scale) instead of hard saturation: no hard clips, the knee touches < 3 % of samples in that worst case, and the synth or the drums alone pass untouched; (2) the **velocity curve's middle is lifted** (vel 4 / 5 / 6 = 0.38 / 0.6 / 0.8, was 0.3 / 0.5 / 0.75; vel 1 and 7 unchanged), so sequenced steps (a normal tap records 4–5) come up: groove RMS −16.9 dBFS (was −18.2), pad hits −13.6 dBFS, close to the synth. Lower drum ceilings were rejected: they stop the clipping only by raising kick distortion from 2 % to 6–16 %.
+- **Record icon**: centred where the boombox stands (x 111, y 8; 15 × 15 lit), instead of the top-right corner.
+- Host tests pass (t8: bus modulation incl. refused sources). Labs stable. `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| phase 25 | 410,812 | 11,076 | 30,576 |
+| **phase 26** | **411,436** | **10,452** | **30,576** |

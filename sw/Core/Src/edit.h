@@ -161,6 +161,9 @@ void finger_editing(int fi, int frame) {
 				int cur = GetParam(pi, edit_mod);
 				int prev = cur;
 				int f = param_flags[pi];
+#if GROOVE_ENABLE
+				if (groove_param_plain(pi)) f = 0; // GROOVE HOOK: drum bus pads step 1 by 1, unsigned
+#endif
 				bool issigned = f & FLAG_SIGNED;
 				issigned |= (edit_mod != M_BASE);
 				if ((f & FLAG_MASK) && edit_mod == 0) {
@@ -496,6 +499,9 @@ void finger_editing(int fi, int frame) {
 				) {
 				int pi = edit_param;
 				bool issigned = param_flags[pi] & FLAG_SIGNED;
+#if GROOVE_ENABLE
+				if (groove_param_plain(pi)) issigned = false; // GROOVE HOOK: drum bus pads are 0..100 %
+#endif
 				issigned |= (edit_mod != M_BASE);
 				float target = clampf((2048 - 256 - uif->pos) * (FULL / (2048.f - 512.f)), 0.f, FULL);
 				if (issigned)

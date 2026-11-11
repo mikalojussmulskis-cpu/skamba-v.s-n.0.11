@@ -959,19 +959,28 @@ void groove_set_field(int field, int value) {
 }
 
 // modulation amount of a field of the selected lane (param units: +-1016)
+// drum bus fields: one value for the whole pattern, modulated by knobs / CV / LFOs only
+static int bus_field(int field) {
+	return field == GF_DJFILTER || field == GF_VOLUME || field == GF_COMP || field == GF_BUSDRIVE || field == GF_BUSSRR;
+}
+
 int groove_get_mod(int field, int source) {
-	if ((field <= GF_MODEL || field > GF_FENV) && field != GF_DJFILTER)
+	if ((field <= GF_MODEL || field > GF_FENV) && !bus_field(field))
 		return 0;
-	int i = find_mod(field == GF_DJFILTER ? LANE_ALL : lane_sel, field, source);
+	int i = find_mod(bus_field(field) ? LANE_ALL : lane_sel, field, source);
 	return i < 0 ? 0 : pat.mod[i].amount * 8;
 }
 
 void groove_set_mod(int field, int source, int value) {
-	if ((field <= GF_MODEL || field > GF_FENV) && field != GF_DJFILTER)
+	if ((field <= GF_MODEL || field > GF_FENV) && !bus_field(field))
 		return;
 	if (source < MOD_ENV || source > MOD_RND)
 		return;
-	int lane = field == GF_DJFILTER ? LANE_ALL : lane_sel;
+	if (bus_field(field) && (source < MOD_A || source > MOD_Y)) {
+		ShowMessage(F_16_BOLD, "all drums", "knobs, CV, LFOs only");
+		return;
+	}
+	int lane = bus_field(field) ? LANE_ALL : lane_sel;
 	int i = find_mod(lane, field, source);
 	int cur = i < 0 ? 0 : pat.mod[i].amount * 8;
 	int a = clampi(qdiv(value, cur, 8), -127, 127);
@@ -1462,17 +1471,43 @@ u8 groove_voice_alloc(u8 down, u8 trig, const float* vol0, int stride) {
 	return kill;
 }
 
+static int soft_sum(int x) {
+	const int t = 26214; // 0.8 of full scale
+	int a = x < 0 ? -x : x;
+	if (a <= t)
+		return x;
+	float z = (a - t) * (1.f / (32767 - t));
+	int y = t + (int)((32767 - t) * z / (1.f + z));
+	return x < 0 ? -y : y;
+}
+
+unsigned long groove_mix(unsigned long lr, int drum) {
+	int l = (s16)(lr & 0xffff) + drum, r = (s16)(lr >> 16) + drum;
+	return (unsigned long)(u16)soft_sum(l) | ((unsigned long)(u16)soft_sum(r) << 16);
+}
+
 void groove_audio(void) {
 	// hits modulated by knobs / CV / LFOs follow them while they ring
 	for (int l = 0; l < GROOVE_LANES; ++l)
 		if (eff_live & (1 << l))
 			compute_eff(l);
-	int dj = pat.djfilter; // DJ filter + knob / CV / LFO modulation
-	for (int i = 0; i < pat.nmods; ++i)
-		if (pat.mod[i].lane == LANE_ALL && pat.mod[i].source >= MOD_A && pat.mod[i].source <= MOD_Y)
-			dj += (int)(mod_value(&pat.mod[i], 0) * pat.mod[i].amount * (255.f / 127.f));
+	// drum bus settings + knob / CV / LFO modulation
+	int dj = pat.djfilter, vol = pat.volume, comp = pat.comp, drive = pat.drive, srr = pat.srr;
+	for (int i = 0; i < pat.nmods; ++i) {
+		GrooveMod* m = &pat.mod[i];
+		if (m->lane != LANE_ALL || m->source < MOD_A || m->source > MOD_Y)
+			continue;
+		int d = (int)(mod_value(m, 0) * m->amount * (255.f / 127.f));
+		switch (m->field) {
+		case GF_DJFILTER: dj += d; break;
+		case GF_VOLUME:   vol += d; break;
+		case GF_COMP:     comp += d; break;
+		case GF_BUSDRIVE: drive += d; break;
+		case GF_BUSSRR:   srr += d; break;
+		}
+	}
 	dj_eff = clampi(dj, 0, 255);
-	drums_render(pat.volume, dj_eff, pat.comp, pat.drive, pat.srr);
+	drums_render(clampi(vol, 0, 255), dj_eff, clampi(comp, 0, 255), clampi(drive, 0, 255), clampi(srr, 0, 255));
 #if GROOVE_FX
 	if (fx_on & FX_BIT(GF_GATE)) { // trance gate: open for the first half of each period, 2 ms ramps
 		int period = maxi((step_ticks_now * 4) >> (fx_set[FX_GATE] + 1), 2);
@@ -1732,7 +1767,9 @@ void groove_draw_oled(int mode) {
 	else if (recording_now)
 		sprintf(st, "\x9c");
 	draw_stage(!st[0]);
-	if (st[0]) { // on a black box, over the cat's tail
+	if (st[0] == '\x9c' && !st[1]) // recording: the record icon (15 x 15 lit) in the middle of the boombox's place
+		drawstr(STAGE_X + 52 - 7, 8, F_12, st);
+	else if (st[0]) { // on a black box, over the cat's tail
 		int w = strwidth(F_12, st) + 2;
 		for (int y = 0; y < 16; ++y)
 			for (int x = 128 - w; x < 128; ++x)

@@ -2510,9 +2510,9 @@ if (ENABLE_HPF) for (int i = 0; i < BLOCK_SAMPLES; ++i) {
 		src[0] = STEREOADDSAT(STEREOADDSAT(STEREOSCALE(drylr0,drylvl), audioin0), midwetlr);
 		src[1] = STEREOADDSAT(STEREOADDSAT(STEREOSCALE(drylr1,drylvl), audioin1), newwetlr);
 #if GROOVE_ENABLE
-		if (GROOVE_IS_ON) { // GROOVE HOOK: dry drums, after the synth compressor
-			src[0] = STEREOADDSAT(src[0], STEREOPACK(drum_bus_dry[i * 2], drum_bus_dry[i * 2]));
-			src[1] = STEREOADDSAT(src[1], STEREOPACK(drum_bus_dry[i * 2 + 1], drum_bus_dry[i * 2 + 1]));
+		if (GROOVE_IS_ON) { // GROOVE HOOK: dry drums, after the synth compressor, through a soft knee
+			src[0] = groove_mix(src[0], drum_bus_dry[i * 2]);
+			src[1] = groove_mix(src[1], drum_bus_dry[i * 2 + 1]);
 		}
 #endif
 

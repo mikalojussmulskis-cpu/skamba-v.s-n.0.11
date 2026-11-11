@@ -258,8 +258,9 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 	d->srr0 = 1.f;
 	exc_filter(d, EF_OFF, 0.f, 0.f); // models with noise / metal set their own below
 
-	// velocity 1..7 -> gain: wide range, row 5 of the drum pads is barely audible
-	static const float vel_gain[8] = { 0.f, 0.03f, 0.08f, 0.16f, 0.3f, 0.5f, 0.75f, 1.f };
+	// velocity 1..7 -> gain: wide range, row 5 of the drum pads is barely audible; the
+	// middle (a normal tap records 4..5) sits a little higher, full velocity stays 1
+	static const float vel_gain[8] = { 0.f, 0.04f, 0.1f, 0.2f, 0.38f, 0.6f, 0.8f, 1.f };
 	const float g = vel_gain[vel & 7];
 	const float t = fexp2(p->tune * (1.f / 60.f)); // 5 units per semitone
 	const float s = p->sweep * (1.f / 255.f);
@@ -708,18 +709,33 @@ static void bus_compress(int comp) {
 		comp_gain = 1.f;
 		return;
 	}
-	const float a = comp * (1.f / 255.f); // amount: threshold 0 .. -24 dB, ratio 2:1 .. 6:1, make-up 0 .. +9 dB (a^2)
+	const float a = comp * (1.f / 255.f); // amount: threshold 0 .. -36 dB, ratio 2:1 .. 10:1, make-up 0 .. +25 dB (a^2)
 	int peak = 0;
 	for (int i = 0; i < DRUM_BLOCK; ++i) {
 		int v = drum_bus_dry[i] < 0 ? -drum_bus_dry[i] : drum_bus_dry[i];
 		if (v > peak) peak = v;
 	}
-	const float thr = 32767.f * BUS_SCALE * fexp2(a * -4.f); // bus full scale = BUS_SCALE
+#ifndef COMP_THR
+#define COMP_THR 6.f      // threshold range in octaves (6 = 36 dB)
+#endif
+#ifndef COMP_RATIO
+#define COMP_RATIO 8.f    // ratio 2:1 .. (2 + COMP_RATIO):1
+#endif
+#ifndef COMP_MAKEUP
+#define COMP_MAKEUP 4.2f  // make-up in octaves at full amount (scaled by amount^2): the level stays about the same
+#endif
+#ifndef COMP_KA
+#define COMP_KA (1.f / 10.f) // attack per sample (1 / 10 = 0.3 ms)
+#endif
+	const float thr = 32767.f * BUS_SCALE * fexp2(a * -COMP_THR); // bus full scale = BUS_SCALE
 	float target = 1.f;
 	if (peak > thr)
-		target = fexp2(flog2(thr / (float)peak) * (1.f - 1.f / (2.f + a * 4.f))); // (thr / peak) ^ (1 - 1 / ratio)
-	target *= fexp2(a * a * 1.5f);
-	const float ka = 1.f / 31.f, kr = 1.f / 2500.f; // 1 ms attack, 80 ms release
+		target = fexp2(flog2(thr / (float)peak) * (1.f - 1.f / (2.f + a * COMP_RATIO))); // (thr / peak) ^ (1 - 1 / ratio)
+	target *= fexp2(a * a * COMP_MAKEUP);
+#ifndef COMP_KR
+#define COMP_KR (1.f / 1560.f) // release per sample (1 / 1560 = 50 ms; faster starts to distort a held bass)
+#endif
+	const float ka = COMP_KA, kr = COMP_KR;
 	float g = comp_gain;
 	for (int i = 0; i < DRUM_BLOCK; ++i) {
 		g += (target - g) * (target < g ? ka : kr);
@@ -984,13 +1000,19 @@ HOT void drums_render(int master, int djfilter, int comp, int drive, int srr) {
 	// hits stay below the knee at 80 %, where the stage is linear. Above it a soft
 	// knee y = t + (1 - t) z / (1 + z) bends the rest smoothly towards full scale
 	// instead of clipping hard (slope 1 at the knee, so no kink).
-	const float t = 0.8f;
+#ifndef OUT_KNEE
+#define OUT_KNEE 0.8f  // linear below this (fraction of full scale)
+#endif
+#ifndef OUT_CEIL
+#define OUT_CEIL 1.0f  // ... and bends smoothly towards this ceiling above it
+#endif
+	const float t = OUT_KNEE, c = OUT_CEIL;
 	for (int i = 0; i < DRUM_BLOCK; ++i) {
 		float x = drum_bus_dry[i] * (1.f / (32768.f * BUS_SCALE));
 		float a = fabs_(x);
 		if (a > t) {
-			float z = (a - t) * (1.f / (1.f - t));
-			a = t + (1.f - t) * z / (1.f + z);
+			float z = (a - t) * (1.f / (c - t));
+			a = t + (c - t) * z / (1.f + z);
 			x = x < 0.f ? -a : a;
 		}
 		drum_bus_dry[i] = (int16_t)(x * 32767.f);

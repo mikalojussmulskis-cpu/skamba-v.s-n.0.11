@@ -793,6 +793,10 @@ void editmode_ui(void) {
 	u8 loopstart_step = (rampreset.loopstart_step_no_offset + step_offset) & 63;
 
 	const char* pagename = 0;
+#if GROOVE_ENABLE
+	if (GROOVE_IS_ON && (shift_down == SB_PLAY || (shift_down == SB_RECORD && isshortpress())))
+		goto groove_no_banner; // GROOVE HOOK: no "play" / "record" banner in Groove mode, the normal screen stays
+#endif
 	if (shift_down == SB_RECORD) {
 		if (isshortpress())
 			drawstr(0, 4, F_20_BOLD, recording ? I_RECORD "record >off" : I_RECORD "record >on");
@@ -818,7 +822,11 @@ void editmode_ui(void) {
 		drawstr(0, 4, F_24_BOLD, rampreset.arpon ? I_NOTES "arp >off" : I_NOTES "arp >on");
 		invertrectangle(0, 0, shift_down_time*4-8, 4);
 	}*/
-	else switch (editmode) {
+	else
+#if GROOVE_ENABLE
+	groove_no_banner: // GROOVE HOOK
+#endif
+	switch (editmode) {
 	case EM_PLAY:
 		if (GROOVE_GRID && !(lastencodertime && lastencodertime > millis() - 2000)) { groove_draw_oled(0); break; } // GROOVE HOOK
 		if (ramsample.samplelen) {
