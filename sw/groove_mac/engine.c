@@ -358,12 +358,12 @@ void eng_cond_set(int c) {
 }
 
 // --- drum bus ------------------------------------------------------------------
-static u8* bus_byte(int w) { return w == 0 ? &pat.volume : w == 1 ? &pat.comp : &pat.djfilter; }
+static u8* bus_byte(int w) { return w == 0 ? &pat.volume : w == 1 ? &pat.comp : w == 2 ? &pat.djfilter : &pat.drive; }
 int eng_bus_get(int w) { return *bus_byte(w); }
 void eng_bus_set(int w, int v) { LOCK(); *bus_byte(w) = clampi(v, 0, 255); mark_dirty(); UNLOCK(); }
 const char* eng_bus_str(int w, char* buf) {
 	LOCK();
-	const char* s = groove_field_str(w == 0 ? GF_VOLUME : w == 1 ? GF_COMP : GF_DJFILTER, buf);
+	const char* s = groove_field_str(w == 0 ? GF_VOLUME : w == 1 ? GF_COMP : w == 2 ? GF_DJFILTER : GF_BUSDRIVE, buf);
 	if (s != buf) { snprintf(buf, 32, "%s", s); s = buf; }
 	UNLOCK();
 	return s;

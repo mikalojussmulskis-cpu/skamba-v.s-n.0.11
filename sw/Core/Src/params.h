@@ -129,7 +129,6 @@ const char * const paramnames[P_LAST]={
 	[P_ENV1_UNUSED] = I_SEQ "Groove", // GROOVE HOOK
 	[P_ENV2_UNUSED] = I_SEQ "Groove Pads", // GROOVE HOOK
 	[P_SYS_UNUSED1] = I_SEQ "Drum Vol", // GROOVE HOOK
-	[P_RVUNUSED] = I_SEQ "Drum Comp", // GROOVE HOOK
 #endif
 	[P_ARPONOFF] = I_NOTES "Arp On/Off",
 	[P_LATCHONOFF] = "Latch On/Off",
@@ -845,11 +844,13 @@ void SetPattern(u8 pattern, bool force) {
 // sensitivity = level, delay / reverb send, env2 level = filter (LP / off / HP),
 // resonance = filter resonance, column = sample rate reduction, decay2 = filter
 // envelope; HPF = filter on
-// all drums (DJ style); arp / seq order = step condition. Params 2 + HPF pad (unprinted) = drum volume.
+// all drums (DJ style); arp / seq order = step condition. Params 2 + HPF pad (unprinted) = drum volume,
+// mixer row 5th pad (unprinted): Params 1 = drum compressor, Params 2 = drum overdrive.
 static int groove_field_for_param(int p) {
 	if (p == P_SYS_UNUSED1 && GROOVE_IS_ON) return GF_VOLUME; // unprinted pad: drum master volume
-	if (p == P_RVUNUSED && GROOVE_IS_ON) return GF_COMP;      // unprinted pad: drum compressor
 	if (!GROOVE_GRID) return -1;
+	if (p == P_CV_QUANT) return GF_COMP;    // mixer row, unprinted 5th pad: drum compressor (Params 1) ...
+	if (p == P_ACCEL_SENS) return GF_BUSDRIVE; // ... and drum overdrive (Params 2)
 	switch (p) {
 	case P_DLSEND: return GF_DLSEND;
 	case P_RVSEND: return GF_RVSEND;

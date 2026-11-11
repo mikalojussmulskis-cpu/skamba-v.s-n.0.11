@@ -68,7 +68,8 @@ typedef struct GroovePattern { // 944 bytes
 	u8 nmods;
 	u8 djfilter; // global drum filter (DRUM_FILTER_OFF = off)
 	u8 comp;     // drum bus compressor (0 = off); was reserved (0) before
-	u8 rsv[2];
+	u8 drive;    // global drum overdrive (0 = off); was reserved (0) before
+	u8 rsv;
 	GrooveLane lane[GROOVE_LANES];
 	u8 step[GROOVE_LANES][GROOVE_STEPS];
 	GrooveMod mod[GROOVE_MAX_MODS];
@@ -869,6 +870,8 @@ int groove_get_field(int field) {
 		return pat.djfilter * 4;
 	if (field == GF_COMP)
 		return pat.comp * 4;
+	if (field == GF_BUSDRIVE)
+		return pat.drive * 4;
 	if (field == GF_COND)
 		return byte_to_value(GF_COND, cond_value());
 #if GROOVE_FX
@@ -905,8 +908,8 @@ void groove_set_field(int field, int value) {
 		return;
 	}
 	if (field >= GF_VOLUME) { // whole drum bus
-		u8* b = (field == GF_VOLUME) ? &pat.volume : (field == GF_DJFILTER) ? &pat.djfilter : &pat.comp;
-		if (field > GF_COMP) return;
+		u8* b = (field == GF_VOLUME) ? &pat.volume : (field == GF_DJFILTER) ? &pat.djfilter : (field == GF_COMP) ? &pat.comp : &pat.drive;
+		if (field > GF_COMP && field != GF_BUSDRIVE) return;
 		*b = clampi(qdiv(value, *b * 4, 4), 0, 255);
 		mark_dirty();
 		return;
@@ -999,10 +1002,11 @@ static const char* const field_names[] = {
 	[GF_SRR] = "Sample Rate", [GF_FENV] = "Filter Env", [GF_VOLUME] = "Drum Vol", [GF_DJFILTER] = "Drums Filter", [GF_COMP] = "Drum Comp",
 	[GF_COND] = "Condition",
 	[GF_ROLL] = "Roll", [GF_RATCHET] = "Ratchet", [GF_REVERSE] = "Reverse", [GF_PITCHFALL] = "Pitch Fall", [GF_GATE] = "Gate", [GF_CRUSH] = "Crush",
+	[GF_BUSDRIVE] = "Drum Drive",
 };
 
 const char* groove_field_name(int field) {
-	return (field >= 0 && field <= GF_CRUSH) ? field_names[field] : "";
+	return (field >= 0 && field <= GF_BUSDRIVE) ? field_names[field] : "";
 }
 
 const char* groove_field_page(int field) {
@@ -1072,7 +1076,7 @@ const char* groove_field_str(int field, char* buf) {
 	if (FX_IS(field))
 		return fx_str(field, buf);
 #endif
-	u8 b = (field == GF_DJFILTER) ? pat.djfilter : (field == GF_COMP) ? pat.comp : field_byte(field);
+	u8 b = (field == GF_DJFILTER) ? pat.djfilter : (field == GF_COMP) ? pat.comp : (field == GF_BUSDRIVE) ? pat.drive : field_byte(field);
 	switch (field) {
 	case GF_FENV:
 		if (b == DRUM_FILTER_OFF)
@@ -1080,6 +1084,7 @@ const char* groove_field_str(int field, char* buf) {
 		sprintf(buf, "%+d", ((b - DRUM_FILTER_OFF) * 100) / 127);
 		return buf;
 	case GF_COMP:
+	case GF_BUSDRIVE:
 	case GF_SRR:
 		if (!b)
 			return "Off";
@@ -1464,7 +1469,7 @@ void groove_audio(void) {
 		if (pat.mod[i].lane == LANE_ALL && pat.mod[i].source >= MOD_A && pat.mod[i].source <= MOD_Y)
 			dj += (int)(mod_value(&pat.mod[i], 0) * pat.mod[i].amount * (255.f / 127.f));
 	dj_eff = clampi(dj, 0, 255);
-	drums_render(pat.volume, dj_eff, pat.comp);
+	drums_render(pat.volume, dj_eff, pat.comp, pat.drive);
 #if GROOVE_FX
 	if (fx_on & FX_BIT(GF_GATE)) { // trance gate: open for the first half of each period, 2 ms ramps
 		int period = maxi((step_ticks_now * 4) >> (fx_set[FX_GATE] + 1), 2);

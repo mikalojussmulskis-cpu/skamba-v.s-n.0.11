@@ -836,3 +836,15 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 |---|---|---|---|
 | Phase 18 default | 408,320 | 13,568 | 30,548 |
 | **Phase 19 default** | **408,364** | **13,524** | **30,544** |
+
+### Phase 20: compressor and overdrive on the mixer row's unprinted pad; kicks bypass the compressor (done)
+- **Pads**: in the drum grid the mixer row's unprinted 5th pad is **Params 1 = Drum Comp** (was Params 2 + the delay-row "Feedback" pad, now blocked again) and **Params 2 = Drum Drive** (new). In the Plinky view those pads keep their Plinky meaning (CV quantise, accelerometer sensitivity).
+- **Drum Drive** (global, per pattern, stored in the formerly reserved byte, 0 = off, old patterns off): gain up to ×10 into a sine shaper that saturates softly and folds the loudest peaks back once (wavefolder), level held within ±2 dB across the range. Applied after the DJ filter, before the 25 Hz high-pass, on dry and sends.
+- **Kicks bypass the compressor**: voices are rendered in two passes, everything but Kick / Kick2 first, then the compressor, then the kicks on top. Verified: a kick alone is bit-identical at compressor 0 and 100 %.
+- Chain is now: voices (non-kick) → compressor → kicks → DJ filter → drive → 25 Hz high-pass → output stage.
+- Host tests t3 16, t4 15, t5 20, t6 17, t7 (FX on) 27, t8 13 pass; labs stable. `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical. Mac app: Drive slider added.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 19 default | 408,364 | 13,524 | 30,544 |
+| **Phase 20 default** | **407,908** | **13,980** | **30,544** |

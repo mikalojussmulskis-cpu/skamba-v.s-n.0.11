@@ -91,7 +91,8 @@ enum EGrooveFields { GF_MODEL, GF_TUNE, GF_SWEEP, GF_DECAY, GF_SNAP, GF_COLOR, G
 	GF_COND,              // step condition of the locked step (Arp / Seq order pads; stored as a step lock)
 	// momentary drum FX (Arp row: Divide, Prob, Euclid Len, Octaves; Seq row: Divide, Prob):
 	// the effect runs while the pad is held under Shift; encoder / slider = its setting
-	GF_ROLL, GF_RATCHET, GF_REVERSE, GF_PITCHFALL, GF_GATE, GF_CRUSH };
+	GF_ROLL, GF_RATCHET, GF_REVERSE, GF_PITCHFALL, GF_GATE, GF_CRUSH,
+	GF_BUSDRIVE };        // global drum overdrive (whole groove pattern)
 // encoder click puts these back to the middle (off)
 #define GROOVE_FIELD_IS_FILTER(f) ((f) == GF_FILTER || (f) == GF_DJFILTER || (f) == GF_FENV)
 // fields of one lane (the OLED shows the lane / locked step), as opposed to the whole drum bus

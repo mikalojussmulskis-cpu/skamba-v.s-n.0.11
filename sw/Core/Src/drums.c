@@ -693,18 +693,75 @@ static void dj_filter_pass(int16_t* x, int n, float* st, float a1, float a2, flo
 
 // drum bus compressor: the block's peak sets a target gain (threshold, ratio and
 // make-up from the amount); the gain follows it per sample with a 1 ms attack and
-// an 80 ms release, so stacked hits are held down without steps or pumping
+// an 80 ms release, so stacked hits are held down without steps or pumping.
+// Kicks are mixed in after it (see drums_render).
 static float comp_gain = 1.f;
 
-HOT void drums_render(int master, int djfilter, int comp) {
+// drum bus compressor (see comp_gain above); applied to dry and sends
+static void bus_compress(int comp) {
+	if (!comp) {
+		comp_gain = 1.f;
+		return;
+	}
+	const float a = comp * (1.f / 255.f); // amount: threshold 0 .. -24 dB, ratio 2:1 .. 6:1, make-up 0 .. +9 dB (a^2)
+	int peak = 0;
+	for (int i = 0; i < DRUM_BLOCK; ++i) {
+		int v = drum_bus_dry[i] < 0 ? -drum_bus_dry[i] : drum_bus_dry[i];
+		if (v > peak) peak = v;
+	}
+	const float thr = 32767.f * BUS_SCALE * fexp2(a * -4.f); // bus full scale = BUS_SCALE
+	float target = 1.f;
+	if (peak > thr)
+		target = fexp2(flog2(thr / (float)peak) * (1.f - 1.f / (2.f + a * 4.f))); // (thr / peak) ^ (1 - 1 / ratio)
+	target *= fexp2(a * a * 1.5f);
+	const float ka = 1.f / 31.f, kr = 1.f / 2500.f; // 1 ms attack, 80 ms release
+	float g = comp_gain;
+	for (int i = 0; i < DRUM_BLOCK; ++i) {
+		g += (target - g) * (target < g ? ka : kr);
+		drum_bus_dry[i] = sat16((int32_t)(drum_bus_dry[i] * g));
+		if (i & 1) {
+			drum_bus_dl[i >> 1] = sat16((int32_t)(drum_bus_dl[i >> 1] * g));
+			drum_bus_rv[i >> 1] = sat16((int32_t)(drum_bus_rv[i >> 1] * g));
+		}
+	}
+	comp_gain = g;
+}
+
+// global overdrive on the bus: gain, then a sine shaper that saturates softly and
+// folds the loudest peaks back (wavefolder); the level is kept roughly constant
+static void bus_drive_pass(int16_t* x, int n, float g, float post) {
+	for (int i = 0; i < n; ++i) {
+		float s = x[i] * g;
+		s = s / (1.f + fabs_(s) * 0.3f); // never more than one fold
+		float ph = s * 0.25f + 0.5f;
+		ph += (float)(ph < 0.f);
+		ph -= (float)(ph >= 1.f);
+		x[i] = sat16((int32_t)(psin(ph) * post));
+	}
+}
+static void bus_drive(int drive) {
+	const float a = drive * (1.f / 255.f);
+	const float g = (1.f + a * 9.f) / (32768.f * BUS_SCALE);
+	const float post = 32768.f * BUS_SCALE * (1.f / 1.57f) * (1.f - a * 0.35f);
+	bus_drive_pass(drum_bus_dry, DRUM_BLOCK, g, post);
+	bus_drive_pass(drum_bus_dl, DRUM_BLOCK / 2, g, post);
+	bus_drive_pass(drum_bus_rv, DRUM_BLOCK / 2, g, post);
+}
+
+HOT void drums_render(int master, int djfilter, int comp, int drive) {
 	memset(drum_bus_dry, 0, sizeof(drum_bus_dry));
 	memset(drum_bus_dl, 0, sizeof(drum_bus_dl));
 	memset(drum_bus_rv, 0, sizeof(drum_bus_rv));
 	const float mg = master * (OUT_GAIN / (255.f * 255.f));
 	float buf[SUB];
+	// pass 0: every voice but the kicks, then the compressor; pass 1: the kicks on
+	// top, so they bypass it (the body of the loop keeps its old indentation)
+	for (int pass = 0; pass < 2; ++pass) {
+	if (pass == 1)
+		bus_compress(comp);
 	for (int v = 0; v < VOICES; ++v) {
 		DrumVoice* d = &dv[v];
-		if (!d->active)
+		if (!d->active || is_kick(d->model) != pass)
 			continue;
 		const DrumParams* p = d->p;
 
@@ -848,6 +905,7 @@ HOT void drums_render(int master, int djfilter, int comp) {
 		if (d->at < SILENT && d->an < SILENT && !d->clap_left)
 			d->active = 0;
 	}
+	}
 	if (djfilter < DRUM_FILTER_OFF - 4 || djfilter > DRUM_FILTER_OFF + 4) {
 		int lp = djfilter < DRUM_FILTER_OFF;
 		float fc = lp ? 18000.f * fexp2((djfilter - DRUM_FILTER_OFF) * (8.f / 128.f)) // 70 Hz .. open
@@ -866,32 +924,8 @@ HOT void drums_render(int master, int djfilter, int comp) {
 	else
 		memset(dj_s, 0, sizeof(dj_s));
 
-	if (comp) {
-		const float a = comp * (1.f / 255.f); // amount: threshold 0 .. -24 dB, ratio 2:1 .. 6:1, make-up 0 .. +9 dB (a^2)
-		int peak = 0;
-		for (int i = 0; i < DRUM_BLOCK; ++i) {
-			int v = drum_bus_dry[i] < 0 ? -drum_bus_dry[i] : drum_bus_dry[i];
-			if (v > peak) peak = v;
-		}
-		const float thr = 32767.f * BUS_SCALE * fexp2(a * -4.f); // bus full scale = BUS_SCALE
-		float target = 1.f;
-		if (peak > thr)
-			target = fexp2(flog2(thr / (float)peak) * (1.f - 1.f / (2.f + a * 4.f))); // (thr / peak) ^ (1 - 1 / ratio)
-		target *= fexp2(a * a * 1.5f);
-		const float ka = 1.f / 31.f, kr = 1.f / 2500.f; // 1 ms attack, 80 ms release
-		float g = comp_gain;
-		for (int i = 0; i < DRUM_BLOCK; ++i) {
-			g += (target - g) * (target < g ? ka : kr);
-			drum_bus_dry[i] = sat16((int32_t)(drum_bus_dry[i] * g));
-			if (i & 1) {
-				drum_bus_dl[i >> 1] = sat16((int32_t)(drum_bus_dl[i >> 1] * g));
-				drum_bus_rv[i >> 1] = sat16((int32_t)(drum_bus_rv[i >> 1] * g));
-			}
-		}
-		comp_gain = g;
-	}
-	else
-		comp_gain = 1.f;
+	if (drive)
+		bus_drive(drive);
 
 	{ // 2-pole Butterworth high-pass at 25 Hz: removes DC and sub rumble, a 50 Hz kick loses 0.3 dB
 		const float g = 3.14159265f * 25.f / SR, k = 1.41421356f; // tan(x) ~ x this low
