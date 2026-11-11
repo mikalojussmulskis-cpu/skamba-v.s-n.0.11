@@ -824,3 +824,15 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 |---|---|---|---|
 | Phase 17 default | 408,128 | 13,760 | 30,540 |
 | **Phase 18 default** | **408,320** | **13,568** | **30,548** |
+
+### Phase 19: drum bus compressor rebuilt, output headroom, compressor default 30 % (done)
+- **Why**: a kick and a Bass on the same step distorted. Two causes, measured in `comp.c`: the output stage (gain 3, knee at 70 %) was already squashing the sum with the compressor off (990 samples near full scale in 2 s), and the old compressor stepped its gain inside each block on top of that (largest sample jump 5,988 → 8,874 at 30 %).
+- **Compressor** (new): the block's peak sets a target gain from the amount (threshold 0 … −24 dB, ratio 2:1 … 6:1, make-up 0 … +9 dB rising with the square of the amount); the gain follows it **per sample** with a 1 ms attack and an 80 ms release, so there are no steps and no pumping. Sends are compressed with the dry signal. At 30 %: kick + Bass peak −2.9 dBFS, 0 samples near full scale.
+- **Output stage**: gain 2 instead of 3, knee at 80 % instead of 70 %. One full hit (level 255, volume 255) sits at −3.5 dBFS, below the knee, so single hits are never shaped; a compressed stack stays linear too. Overall drums are 3.5 dB quieter than v18 (still 2.5 dB louder than v12); turn Drum Vol up if needed. Lab levels at the default kit: kick −2.1 dBFS, snare −4.6 dBFS.
+- **Default compressor 30 %** (`COMP_DEFAULT` 77) for new / cleared patterns; saved patterns keep their setting.
+- Host tests t3 16, t4 15, t5 20, t6 17, t7 (FX on) 27, t8 13 pass; labs stable (3,078 configs, 0 unstable). `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical. The Mac app was rebuilt with the new engine.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 18 default | 408,320 | 13,568 | 30,548 |
+| **Phase 19 default** | **408,364** | **13,524** | **30,544** |

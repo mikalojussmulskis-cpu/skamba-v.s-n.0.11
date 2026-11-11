@@ -115,6 +115,13 @@ static float fexp2(float x) { // 2^x, about 0.3 % error
 	u.i += i << 23;
 	return u.f;
 }
+static float flog2(float x) { // log2(x) for x > 0, about 0.5 % error
+	union { float f; int32_t i; } u = { x };
+	int e = ((u.i >> 23) & 255) - 127;
+	u.i = (u.i & 0x7fffff) | 0x3f800000; // mantissa in 1..2
+	float m = u.f - 1.f;
+	return e + m * (1.4427f - m * (0.7213f - m * 0.3f));
+}
 static float kdecay(float seconds) { // per-sample multiplier that decays to 1/e in `seconds`
 	return 1.f - 1.f / (seconds * SR);
 }
@@ -684,14 +691,10 @@ static void dj_filter_pass(int16_t* x, int n, float* st, float a1, float a2, flo
 	st[0] = s1; st[1] = s2;
 }
 
-// drum bus compressor: peak detector per block, instant attack, ~100 ms release,
-// gain ramped across the block, automatic make-up gain
-static float comp_gain = 1.f, comp_out = 1.f;
-static void ramp_gain(int16_t* x, int n, float g0, float g1) {
-	const float dg = (g1 - g0) / n;
-	for (int i = 0; i < n; ++i, g0 += dg)
-		x[i] = sat16((int32_t)(x[i] * g0));
-}
+// drum bus compressor: the block's peak sets a target gain (threshold, ratio and
+// make-up from the amount); the gain follows it per sample with a 1 ms attack and
+// an 80 ms release, so stacked hits are held down without steps or pumping
+static float comp_gain = 1.f;
 
 HOT void drums_render(int master, int djfilter, int comp) {
 	memset(drum_bus_dry, 0, sizeof(drum_bus_dry));
@@ -864,25 +867,31 @@ HOT void drums_render(int master, int djfilter, int comp) {
 		memset(dj_s, 0, sizeof(dj_s));
 
 	if (comp) {
+		const float a = comp * (1.f / 255.f); // amount: threshold 0 .. -24 dB, ratio 2:1 .. 6:1, make-up 0 .. +9 dB (a^2)
 		int peak = 0;
 		for (int i = 0; i < DRUM_BLOCK; ++i) {
-			int a = drum_bus_dry[i] < 0 ? -drum_bus_dry[i] : drum_bus_dry[i];
-			if (a > peak) peak = a;
+			int v = drum_bus_dry[i] < 0 ? -drum_bus_dry[i] : drum_bus_dry[i];
+			if (v > peak) peak = v;
 		}
-		const float thr = 32767.f * BUS_SCALE * fexp2(comp * (-4.f / 255.f)); // 0 .. -24 dB (bus full scale = BUS_SCALE)
-		const float target = peak > thr ? thr / peak : 1.f;
-		if (target < comp_gain) comp_gain = target;
-		else comp_gain += (target - comp_gain) * 0.02f;
-		// make-up restores 85 % of the threshold drop: the loudest peaks stay below full scale
-		const float out = comp_gain * fexp2(comp * (0.85f * 4.f / 255.f));
-		const float start = out < comp_out ? out : comp_out; // gain drops apply at once (no overshoot)
-		ramp_gain(drum_bus_dry, DRUM_BLOCK, start, out);
-		ramp_gain(drum_bus_dl, DRUM_BLOCK / 2, start, out);
-		ramp_gain(drum_bus_rv, DRUM_BLOCK / 2, start, out);
-		comp_out = out;
+		const float thr = 32767.f * BUS_SCALE * fexp2(a * -4.f); // bus full scale = BUS_SCALE
+		float target = 1.f;
+		if (peak > thr)
+			target = fexp2(flog2(thr / (float)peak) * (1.f - 1.f / (2.f + a * 4.f))); // (thr / peak) ^ (1 - 1 / ratio)
+		target *= fexp2(a * a * 1.5f);
+		const float ka = 1.f / 31.f, kr = 1.f / 2500.f; // 1 ms attack, 80 ms release
+		float g = comp_gain;
+		for (int i = 0; i < DRUM_BLOCK; ++i) {
+			g += (target - g) * (target < g ? ka : kr);
+			drum_bus_dry[i] = sat16((int32_t)(drum_bus_dry[i] * g));
+			if (i & 1) {
+				drum_bus_dl[i >> 1] = sat16((int32_t)(drum_bus_dl[i >> 1] * g));
+				drum_bus_rv[i >> 1] = sat16((int32_t)(drum_bus_rv[i >> 1] * g));
+			}
+		}
+		comp_gain = g;
 	}
 	else
-		comp_gain = comp_out = 1.f;
+		comp_gain = 1.f;
 
 	{ // 2-pole Butterworth high-pass at 25 Hz: removes DC and sub rumble, a 50 Hz kick loses 0.3 dB
 		const float g = 3.14159265f * 25.f / SR, k = 1.41421356f; // tan(x) ~ x this low
@@ -890,13 +899,14 @@ HOT void drums_render(int master, int djfilter, int comp) {
 		dj_filter_pass(drum_bus_dry, DRUM_BLOCK, sub_s, a1, a2, a3, k, 0.f);
 	}
 
-	// output: the bus holds BUS_SCALE of the signal and the output stage has gain 3.
-	// Below 70 % of full scale it is linear (no colouring of single hits); above, a
-	// soft knee y = t + (1 - t) z / (1 + z) bends stacked hits smoothly towards full
-	// scale instead of clipping hard (slope 1 at the knee, so no kink).
-	const float t = 0.7f;
+	// output: the bus holds BUS_SCALE of the signal and the output stage has gain 2,
+	// so one full hit (-3.5 dBFS at full level and volume) and a compressed stack of
+	// hits stay below the knee at 80 %, where the stage is linear. Above it a soft
+	// knee y = t + (1 - t) z / (1 + z) bends the rest smoothly towards full scale
+	// instead of clipping hard (slope 1 at the knee, so no kink).
+	const float t = 0.8f;
 	for (int i = 0; i < DRUM_BLOCK; ++i) {
-		float x = drum_bus_dry[i] * (1.5f / (32768.f * BUS_SCALE));
+		float x = drum_bus_dry[i] * (1.f / (32768.f * BUS_SCALE));
 		float a = fabs_(x);
 		if (a > t) {
 			float z = (a - t) * (1.f / (1.f - t));

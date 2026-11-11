@@ -83,6 +83,7 @@ _Static_assert(__builtin_offsetof(DrumParams, model) == GF_MODEL && __builtin_of
 _Static_assert((sizeof(GroovePattern) & 7) == 0, "flash writes are 8-byte units");
 
 #define VOLUME_DEFAULT 128
+#define COMP_DEFAULT 77 // 30 %
 
 // default sound of each model: the default kit, a new lane of that model, and Clear held on a lane
 #define FO DRUM_FILTER_OFF
@@ -261,6 +262,7 @@ static void default_pattern(void) {
 	pat.chain_next = 255;
 	pat.swing_override = 255;
 	pat.volume = VOLUME_DEFAULT;
+	pat.comp = COMP_DEFAULT;
 	pat.djfilter = DRUM_FILTER_OFF;
 	for (int l = 0; l < GROOVE_LANES; ++l) {
 		pat.lane[l].length = GROOVE_PAGE;
