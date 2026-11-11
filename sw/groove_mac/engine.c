@@ -15,9 +15,12 @@
 // --- what plinky.c provides on the hardware --------------------------------
 u8 led_ram[9][8]; int lastencodertime; int mod_cur[8]; u8 textcol;
 void clearlatch(void) {}
-void halfrectangle(int a, int b, int c, int d) { (void)a; (void)b; (void)c; (void)d; }
-void fillrectangle(int a, int b, int c, int d) { (void)a; (void)b; (void)c; (void)d; }
-void hline(int a, int b, int c, int d) { (void)a; (void)b; (void)c; (void)d; }
+// the 128 x 32 screen: pixels, rectangles and lines (text is not drawn here)
+static u8 oled[32][128];
+void putpixel(int x, int y, int c) { if (x >= 0 && x < 128 && y >= 0 && y < 32) oled[y][x] = c ? 1 : 0; }
+void fillrectangle(int x1, int y1, int x2, int y2) { for (int y = y1; y < y2; ++y) for (int x = x1; x < x2; ++x) putpixel(x, y, 1); }
+void halfrectangle(int x1, int y1, int x2, int y2) { for (int y = y1; y < y2; ++y) for (int x = x1; x < x2; ++x) if ((x + y) & 1) putpixel(x, y, 1); }
+void hline(int x1, int y, int x2, int c) { for (int x = x1; x < x2; ++x) putpixel(x, y, c); }
 int fdrawstr(int x, int y, EFont f, const char* fmt, ...) { (void)x; (void)y; (void)f; (void)fmt; return 0; }
 int drawstr(int x, int y, EFont f, const char* b) { (void)x; (void)y; (void)f; (void)b; return 0; }
 
@@ -377,6 +380,14 @@ void eng_pump(void) { LOCK(); groove_flash_pump(); UNLOCK(); }
 void eng_save_now(void) {
 	LOCK();
 	if (dirty) { dirty = 0; SaveGroovePattern(cur_slot, &pat, sizeof(pat)); }
+	UNLOCK();
+}
+
+void eng_oled(uint8_t* out) {
+	LOCK();
+	memset(oled, 0, sizeof(oled));
+	groove_draw_oled(0);
+	memcpy(out, oled, sizeof(oled));
 	UNLOCK();
 }
 

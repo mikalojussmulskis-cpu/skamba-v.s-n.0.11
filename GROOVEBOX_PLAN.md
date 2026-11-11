@@ -848,3 +848,15 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 |---|---|---|---|
 | Phase 19 default | 408,364 | 13,524 | 30,544 |
 | **Phase 20 default** | **407,908** | **13,980** | **30,544** |
+
+### Phase 21: dancing cat on the drum screen (done)
+- The 8 lane meters are 12 px wide instead of 16, which frees a permanent **32 × 16 box at the bottom right** (x 96–127, y 16–31) for a pixel cat. Text never reaches it, so nothing overlaps or goes off screen.
+- **Five poses** (stand, bob, tail up, jump, wince), 64 bytes each in flash. **Beat**: one pose per 16th note (stand, bob, tail up, bob) from the shared bar clock, so it follows the tempo and external clock. **Sound**: it **jumps** while a Kick / Kick2 lane's hit is sounding, and **winces** on other loud hits (hats excluded so it doesn't twitch all the time).
+- **Still** (standing) when the drums are stopped or no unmuted lane has steps. Shown on the normal drum screen only: step lock mode and the Prev / Next loop views keep their text screens.
+- Mac app: a live 3× preview of the Plinky screen (meters and cat; text is not drawn there).
+- Host tests t3 16, t4 15, t5 20, t6 17, t7 (FX on) 27, t8 17 (new: cat stays in its box, jumps on a kick, changes pose with the steps, stands still when stopped) pass. `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 20 default | 407,908 | 13,980 | 30,544 |
+| **Phase 21 default** | **408,432** | **13,456** | **30,544** |

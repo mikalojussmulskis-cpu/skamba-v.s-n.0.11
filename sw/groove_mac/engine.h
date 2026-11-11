@@ -76,5 +76,8 @@ void eng_select_slot(int slot);                  // switches on the next bar whi
 void eng_pump(void);                             // main thread, ~30 times a second: autosave
 void eng_save_now(void);                         // on quit
 
+// the drum screen (meters + dancing cat; text not drawn): 32 rows of 128 bytes, 1 = lit
+void eng_oled(uint8_t* out128x32);
+
 // last on-screen message of the firmware ("acid line", "lane 3 cleared" ...)
 int  eng_message(char* buf, int n, char* sub, int nsub); // returns ms since it was shown

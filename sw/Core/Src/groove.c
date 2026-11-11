@@ -1559,6 +1559,45 @@ void groove_draw_leds(int mode) {
 	}
 }
 
+// the dancing cat: 32 x 16 at the bottom right of the drum grid screen. One pose
+// per 16th of the beat (stand, bob, tail up, bob), a jump on every kick, a wince
+// on every other loud hit; still while the drums are stopped or no lane has steps.
+enum { CAT_STAND, CAT_BOB, CAT_TAIL, CAT_JUMP, CAT_HIT };
+static const u32 cat_pose[5][16] = {
+	{ // stand
+		0x00000000, 0x63000000, 0x55000002, 0x41000004, 0x55000008, 0x41fffff0, 0x2a000008, 0x1c000004, 0x10000004, 0x23ffffc4, 0x24000014, 0x24000018, 0x24000008, 0x24800110, 0x24800110, 0x3cc00190 },
+	{ // bob
+		0x00000000, 0x00000000, 0x63000002, 0x55000004, 0x41000008, 0x55fffff0, 0x41800008, 0x2a000004, 0x1c000004, 0x33ffffc4, 0x24000014, 0x24000018, 0x24000008, 0x24800110, 0x24800110, 0x3cc00190 },
+	{ // tail up
+		0x0000000c, 0x63000012, 0x55000012, 0x41000020, 0x55000020, 0x41ffffc0, 0x2a000040, 0x1c000080, 0x10000080, 0x23ffffc0, 0x24000000, 0x24000000, 0x24000008, 0x24800110, 0x24800110, 0x3cc00190 },
+	{ // jump
+		0x63000000, 0x55000002, 0x41000004, 0x55000008, 0x41000030, 0x2a000008, 0x1c000004, 0x10000004, 0x23ffffc4, 0x24000014, 0x24000018, 0x3ce003d8, 0x18600180, 0x00000000, 0x24400090, 0x00000000 },
+	{ // hit
+		0x00000000, 0x00000000, 0x63000002, 0x55000004, 0x41000008, 0x41fffff0, 0xaa000008, 0x1c000004, 0x10000004, 0x23ffffc4, 0x24000014, 0x24000018, 0x24000008, 0x24800110, 0x24800110, 0x3cc00190 },};
+static void draw_cat(void) {
+	int pose = CAT_STAND;
+	int has_steps = 0;
+	for (int l = 0; l < GROOVE_LANES && !has_steps; ++l)
+		if (!(pat.lane[l].flags & LANE_MUTE))
+			for (int i = 0; i < GROOVE_STEPS; ++i)
+				if (pat.step[l][i] & STEP_TRIG) { has_steps = 1; break; }
+	if (running && has_steps) {
+		static const u8 beat[4] = { CAT_STAND, CAT_BOB, CAT_TAIL, CAT_BOB };
+		pose = beat[bar_step & 3];
+		for (int l = 0; l < GROOVE_LANES; ++l) {
+			int m = pat.lane[l].snd.model;
+			if ((m == DM_KICK || m == DM_KICK2) && flash[l] > 60) { pose = CAT_JUMP; break; }
+			if (flash[l] > 120 && m != DM_CHAT && m != DM_OHAT) pose = CAT_HIT;
+		}
+	}
+	for (int y = 0; y < 16; ++y) {
+		u32 row = cat_pose[pose][y];
+		for (int x = 0; x < 32; ++x)
+			if (row & (0x80000000u >> x))
+				putpixel(96 + x, 16 + y, 1);
+	}
+}
+
 void groove_draw_oled(int mode) {
 	GrooveLane* sel = &pat.lane[lane_sel];
 	if (mode) { // Prev / Next held: the lane's loop
@@ -1596,9 +1635,9 @@ void groove_draw_oled(int mode) {
 		fdrawstr(-128, 2, F_12, ">bar");
 	else if (recording_now)
 		fdrawstr(-128, 2, F_12, "\x9c");
-	// one activity meter per lane; dithered = muted, top line = selected
+	// one activity meter per lane (12 px each, the cat has the right 32 px); dithered = muted, top line = selected
 	for (int l = 0; l < GROOVE_LANES; ++l) {
-		int x0 = l * 16 + 1, x1 = x0 + 13;
+		int x0 = l * 12 + 1, x1 = x0 + 9;
 		if (pat.lane[l].flags & LANE_MUTE)
 			halfrectangle(x0, 20, x1, 32);
 		else
@@ -1606,6 +1645,7 @@ void groove_draw_oled(int mode) {
 		if (l == lane_sel)
 			hline(x0, 18, x1, 1);
 	}
+	draw_cat();
 }
 
 #endif // GROOVE_ENABLE

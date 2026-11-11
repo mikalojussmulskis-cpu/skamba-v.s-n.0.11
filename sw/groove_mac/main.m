@@ -27,6 +27,23 @@ static void text(NSString* s, NSRect r, CGFloat size, NSColor* col, BOOL bold, N
 - (void)drawRect:(NSRect)r { [rgb(0x16181c) setFill]; NSRectFill(r); }
 @end
 
+// the Plinky screen (128 x 32), drawn at 3x: lane meters and the dancing cat
+@interface OledView : NSView
+@end
+@implementation OledView
+- (BOOL)isFlipped { return YES; }
+- (void)drawRect:(NSRect)r {
+	static uint8_t px[32 * 128];
+	eng_oled(px);
+	[NSColor.blackColor setFill];
+	NSRectFill(self.bounds);
+	[rgb(0x9fe8ff) setFill];
+	for (int y = 0; y < 32; ++y)
+		for (int x = 0; x < 128; ++x)
+			if (px[y * 128 + x]) NSRectFill(NSMakeRect(x * 3, y * 3, 3, 3));
+}
+@end
+
 static int step_x(int i) { return STEP_X + i * 36 + (i / 4) * 4; }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +156,7 @@ static int step_x(int i) { return STEP_X + i * 36 + (i / 4) * 4; }
 @implementation App {
 	NSWindow* win;
 	GridView* grid;
+	OledView* oled;
 	NSButton* playBtn;
 	NSSlider* bpmSlider; NSTextField* bpmLabel;
 	NSPopUpButton* slotPop;
@@ -183,7 +201,7 @@ static void audio_cb(void* ud, AudioQueueRef q, AudioQueueBufferRef b) {
 	[NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
 	eng_init([[dir stringByAppendingPathComponent:@"patterns.bin"] fileSystemRepresentation]);
 
-	win = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1250, 660)
+	win = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1250, 790)
 		styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
 	win.title = @"Groove Drums (Plinky engine)";
 	win.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
@@ -223,6 +241,9 @@ static void audio_cb(void* ud, AudioQueueRef q, AudioQueueBufferRef b) {
 	[self button:@"end +" frame:NSMakeRect(636, by + 28, 66, 26) action:@selector(loopEnd:)].tag = 1;
 	[self button:@"Clear lane" frame:NSMakeRect(10, by, 110, 28) action:@selector(clearLane:)];
 	status = [self label:@"" frame:NSMakeRect(10, by + 34, 400, 20) size:13];
+	[self label:@"Plinky screen (meters + cat; text not shown)" frame:NSMakeRect(10, 560, 384, 18) size:11];
+	oled = [[OledView alloc] initWithFrame:NSMakeRect(10, 560 + 20, 384, 96)];
+	[cv addSubview:oled];
 	status.textColor = rgb(0xffb060);
 
 	// sound panel
@@ -254,7 +275,7 @@ static void audio_cb(void* ud, AudioQueueRef q, AudioQueueBufferRef b) {
 		@"Scroll on a step: velocity (Acid lanes: note).   ⌥-click: accent.   ⇧-click: slide (Acid).   Click a lane name: select + play it.   M: mute.\n"
 		@"Keys 1–8: play lanes live.   Space: play / stop.   ← →: step page.   Delete: clear lane (first the steps, then the sound).   Choosing Acid makes a new line.\n"
 		@"Filter, Filter Env and DJ Filter are off in the middle.   Delay and reverb here are simple stand-ins for Plinky's own effects."
-		frame:NSMakeRect(10, 568, 1230, 84) size:11.5];
+		frame:NSMakeRect(10, 694, 1230, 84) size:11.5];
 	help.textColor = rgb(0x8a909a);
 
 	[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent*(NSEvent* e) { return [self key:e] ? nil : e; }];
@@ -293,7 +314,6 @@ static void audio_cb(void* ud, AudioQueueRef q, AudioQueueBufferRef b) {
 			eng_toggle_step(1, 4); eng_toggle_step(1, 12);
 			for (int i = 0; i < 16; i += 2) eng_toggle_step(3, i);
 			eng_select_lane(7); eng_acid_new_line();
-			eng_lock_step(1, 12); eng_cond_set(4);
 			eng_play_toggle();
 		}
 		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
@@ -369,6 +389,7 @@ static void audio_cb(void* ud, AudioQueueRef q, AudioQueueBufferRef b) {
 - (void)tick:(NSTimer*)t {
 	eng_pump();
 	[grid setNeedsDisplay:YES];
+	[oled setNeedsDisplay:YES];
 	int st = eng_playing();
 	playBtn.title = st == 1 ? @"■ Stop" : st == 2 ? @"… bar" : @"▶ Play";
 	int pend = eng_pending_slot();
