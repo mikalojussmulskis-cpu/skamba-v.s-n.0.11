@@ -345,7 +345,7 @@ void groove_toggle(void) {
 		clearlatch();
 		pat.volume = VOLUME_DEFAULT; // drum master volume starts at 50 % every time
 	}
-	ShowMessage(F_20_BOLD, groove_active ? "groove on" : "groove off", 0);
+	ShowMessage(F_20_BOLD, groove_active ? "groove on" : "groove off", VERSION2);
 }
 
 void groove_view_toggle(void) {
@@ -1628,6 +1628,44 @@ static void draw_stage(int boombox) {
 	px_hl(bx + 7, bx + 11, by + 2); px_hl(bx + 7, bx + 11, by + 4); px_vl(bx + 7, by + 2, by + 4); px_vl(bx + 11, by + 2, by + 4); // tape
 	int r = moving && (bar_step & 1);
 	putpixel(bx + 8 + r, by + 3, 1); putpixel(bx + 10 - r, by + 3, 1);                                         // reels
+}
+
+// start-up screen: instead of the Plinky logo, the cat gallops in from the left,
+// across the empty screen and out on the right (gallop cycle: stretch, mid,
+// gather, mid; the art faces left, so it is drawn mirrored)
+static const uint64_t cat_run[3][24] = {
+	{ // stretch
+		0x0000000000000000ull, 0x0000000000000000ull, 0x2010000000000000ull, 0x3030000000000000ull, 0x2850000000000000ull, 0x3ff0000000000000ull, 0x2010000000000000ull, 0x4008000000000000ull, 0x4cc8000000400000ull, 0x4ccfffffe0800000ull, 0xc30c000013000000ull, 0x448800001c000000ull, 0x2010000010000000ull, 0x1fe0000020000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x1000000050000000ull, 0x145fff8f28000000ull, 0x2850005028000000ull, 0x28a0002828000000ull, 0x50a0001414000000ull, 0x514000140a000000ull, 0xa140000a0a000000ull, 0xf1e0000f0f000000ull },
+	{ // mid
+		0x0000000000000000ull, 0x0000000000000000ull, 0x2010000000000000ull, 0x3030000000000000ull, 0x2850000000000000ull, 0x3ff0000000000000ull, 0x2010000000000000ull, 0x4008000000000000ull, 0x4cc8000000400000ull, 0x4ccfffffe0800000ull, 0xc30c000013000000ull, 0x448800001c000000ull, 0x2010000010000000ull, 0x1fe0000020000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x145fff8fa0000000ull, 0x14500050a0000000ull, 0x1450005140000000ull, 0x0aa0005140000000ull, 0x0aa0002940000000ull, 0x0aa0002940000000ull, 0x0ff0003de0000000ull },
+	{ // gather
+		0x0000000000000000ull, 0x0000000000000000ull, 0x0000000000000000ull, 0x2010000000000000ull, 0x3030000000000000ull, 0x2850000000000000ull, 0x3ff0000000000000ull, 0x2010000000000000ull, 0x4008000000000000ull, 0x4cc8000000400000ull, 0x4ccfffffe0800000ull, 0xc30c000013000000ull, 0x448800001c000000ull, 0x2010000010000000ull, 0x1fe0000020000000ull, 0x10000000a0000000ull, 0x1000000140000000ull, 0x1000000280000000ull, 0x145fff8f80000000ull, 0x0a28005500000000ull, 0x0294014a00000000ull, 0x014a051400000000ull, 0x01ef079e00000000ull, 0x0000000000000000ull },
+};
+#define BOOT_RUN_MS 1600
+int groove_boot_frame(void) {
+	static u32 t0;
+	static u8 started;
+	if (!started) {
+		t0 = millis();
+		started = 1;
+	}
+	u32 t = millis() - t0;
+	int x0 = -42 + (int)((t * (128 + 42)) / BOOT_RUN_MS);
+	if (x0 >= 128)
+		return 0;
+	static const u8 cycle[4] = { 0, 1, 2, 1 };
+	int f = cycle[(t / 70) & 3];
+	int y0 = 4 + (f == 2); // the body dips when the legs gather
+	clear();
+	for (int y = 0; y < 24; ++y) {
+		uint64_t row = cat_run[f][y];
+		for (int x = 0; x < 42; ++x) {
+			int sx = x0 + 41 - x;
+			if (sx >= 0 && sx < 128 && (row & (0x8000000000000000ull >> x)))
+				putpixel(sx, y0 + y, 1);
+		}
+	}
+	return 1;
 }
 
 void groove_draw_oled(int mode) {

@@ -3,6 +3,7 @@
 #import <Cocoa/Cocoa.h>
 #import <AudioToolbox/AudioToolbox.h>
 #include "engine.h"
+#define VERSION_NAME @"v.s-n.0.1"
 
 enum { F_TUNE = 1, F_FENV = 13 }; // GF_TUNE .. GF_FENV (groove.h field numbers)
 #define ROW_H 50
@@ -203,7 +204,7 @@ static void audio_cb(void* ud, AudioQueueRef q, AudioQueueBufferRef b) {
 
 	win = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1250, 790)
 		styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO];
-	win.title = @"Groove Drums (Plinky engine)";
+	win.title = @"Groove Drums (Plinky engine) " VERSION_NAME;
 	win.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
 	win.backgroundColor = rgb(0x16181c);
 	NSView* cv = [[FlippedView alloc] initWithFrame:win.contentView.bounds];

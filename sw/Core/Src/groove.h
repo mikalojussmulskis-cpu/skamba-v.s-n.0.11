@@ -29,6 +29,10 @@ extern volatile unsigned char groove_grid;
 #define GROOVE_FX 0
 #endif
 
+// firmware name of Groove builds (config.h keeps Plinky's own, "v0.B4", for GROOVE=0)
+#undef VERSION2
+#define VERSION2 "v.s-n.0.1"
+
 // Use for one-line hooks in existing code: GROOVE_HOOK(groove_foo());
 #define GROOVE_HOOK(stmt) do { stmt; } while (0)
 
@@ -137,6 +141,7 @@ void SaveGroovePattern(int slot, const void* data, int size);
 int  GrooveFlashBusy(void);
 
 // --- drawing (main loop) ----------------------------------------------------
+int  groove_boot_frame(void); // start-up: a cat runs across the empty screen; 1 while running, 0 when done
 // mode: 0 = drum grid, 1 = Prev held (lane start), 2 = Next held (lane end)
 void groove_draw_oled(int mode);
 void groove_draw_leds(int mode);

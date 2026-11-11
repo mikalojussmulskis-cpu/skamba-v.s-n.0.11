@@ -875,3 +875,15 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 
 ### Phase 23: no Plinky page names on drum pads (done)
 - The parameter screen drew Plinky's page name ("Env1", "Sound" ...) before the Groove hook replaced it, so drum pads (e.g. Shift A + Decay) showed "Env1". A separate hook now sets the label before it is drawn: lane fields show `Drum 3` (or `Lock step 5`), bus fields (volume, compressor, drive, DJ filter) `all drums`. Pads still reachable in the drum grid that are real Plinky effects (delay, reverb, LFO / CV, mixer, tempo) keep their own page names. The first attempt moved a shared line and broke the `GROOVE=0` identity; the final version leaves the original lines in place, so it is byte-identical again.
+
+### Phase 24: firmware name v.s-n.0.1, running-cat start-up (done)
+- **Name**: Groove builds are called **v.s-n.0.1** (`VERSION2`, overridden in `groove.h`; `config.h` keeps "v0.B4", so `GROOVE=0` is unchanged). It is the version tail at the end of the binary, shown with "groove on" when Groove mode is switched on, and the UF2 is `plinky_groove_v.s-n.0.1.uf2`.
+- **Start-up**: instead of the Plinky logo and version text, the screen stays empty and the cat gallops in from the left edge, across, and out on the right (1.6 s, gallop cycle stretch / mid / gather / mid at 70 ms per frame, body dips when the legs gather); then the normal screen appears. The Plinky starts in the background as before. One hook in `flip()`.
+- A test caught a start-up bug before it shipped: the start time was stored as `millis() | 1`, which made the elapsed time −1 (huge unsigned) whenever the first frame fell on an even millisecond, skipping the animation on about half of all boots. Fixed with a separate started flag.
+- The visuals of the drum screen stay as in phase 22. Mac app: plays the run in its screen preview at launch; window title shows the version.
+- Host tests pass (t8: the run covers x 0…127 in 1,600 ms and then stays done). `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 23 default | 409,700 | 12,188 | 30,544 |
+| **v.s-n.0.1** | **410,520** | **11,368** | **30,552** |

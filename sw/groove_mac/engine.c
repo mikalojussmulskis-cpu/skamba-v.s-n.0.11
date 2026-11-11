@@ -18,6 +18,7 @@ void clearlatch(void) {}
 // the 128 x 32 screen: pixels, rectangles and lines (text is not drawn here)
 static u8 oled[32][128];
 void putpixel(int x, int y, int c) { if (x >= 0 && x < 128 && y >= 0 && y < 32) oled[y][x] = c ? 1 : 0; }
+void clear(void) { memset(oled, 0, sizeof(oled)); }
 void fillrectangle(int x1, int y1, int x2, int y2) { for (int y = y1; y < y2; ++y) for (int x = x1; x < x2; ++x) putpixel(x, y, 1); }
 void halfrectangle(int x1, int y1, int x2, int y2) { for (int y = y1; y < y2; ++y) for (int x = x1; x < x2; ++x) if ((x + y) & 1) putpixel(x, y, 1); }
 void hline(int x1, int y, int x2, int c) { for (int x = x1; x < x2; ++x) putpixel(x, y, c); }
@@ -386,8 +387,14 @@ void eng_save_now(void) {
 
 void eng_oled(uint8_t* out) {
 	LOCK();
+	static int booting = 1; // the start-up run, as on the Plinky
 	memset(oled, 0, sizeof(oled));
-	groove_draw_oled(0);
+	if (booting)
+		booting = groove_boot_frame();
+	if (!booting) {
+		memset(oled, 0, sizeof(oled));
+		groove_draw_oled(0);
+	}
 	memcpy(out, oled, sizeof(oled));
 	UNLOCK();
 }

@@ -123,6 +123,15 @@ void flip(void) {
 		drawstr(0, y, messagefnt, message);
 	}
 	static u8 frame = 3;
+#if GROOVE_ENABLE
+	if (frame < 255) { // GROOVE HOOK: start-up shows a running cat instead of the logo
+		if (groove_boot_frame()) {
+			oled_flip(vrambuf);
+			return;
+		}
+		frame = 255;
+	}
+#endif
 	if (frame < 255) {
 		int y = frame - 255 + 32;
 		if (y < 32 - 12) y = 32 - 12;
