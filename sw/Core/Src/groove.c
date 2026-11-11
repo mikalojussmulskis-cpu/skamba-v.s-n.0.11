@@ -88,7 +88,7 @@ _Static_assert((sizeof(GroovePattern) & 7) == 0, "flash writes are 8-byte units"
 #define FO DRUM_FILTER_OFF
 static const DrumParams model_default[DM_LAST] = {
 	//            model      tune sweep decay snap colour drive level  dly  rvb  filter reso srr  fenv
-	[DM_KICK]   = { DM_KICK,     0, 150, 133,  70, 110,  40, 230,   0,   0,  FO,    0,  0,  FO },
+	[DM_KICK]   = { DM_KICK,    10, 150,  78,  70, 110,  40, 230,   0,   0,  FO,    0,  0,  FO },
 	[DM_SNARE]  = { DM_SNARE,    0,  40, 115, 130, 150,   0, 200,   0,  13,  FO,    0,  0,  FO },
 	[DM_CLAP]   = { DM_CLAP,     0,   0,  26,   0, 130,   0, 102,   0,  13,  FO,    0,  0,  FO },
 	[DM_CHAT]   = { DM_CHAT,     0,   0, 109,  40, 140,   0, 170,   0,   0,  FO,    0,  0,  FO },
@@ -96,7 +96,7 @@ static const DrumParams model_default[DM_LAST] = {
 	[DM_TOM]    = { DM_TOM,    -40,  90, 153,  30,  60,   0, 210,   0,  10,  FO,    0,  0,  FO },
 	[DM_PERC]   = { DM_PERC,     0,   0,  90,   0, 128,  20, 160,   0,   0,  FO,    0,  0,  FO },
 	[DM_SAMPLE] = { DM_SAMPLE,   0,   0, 128,   0, 128,   0, 200,   0,   0,  FO,    0,  0,  FO },
-	[DM_KICK2]  = { DM_KICK2,    0, 140, 110,  80, 120,  30, 230,   0,   0,  FO,    0,  0,  FO },
+	[DM_KICK2]  = { DM_KICK2,   10, 140,  80,  80, 120,  30, 230,   0,   0,  FO,    0,  0,  FO },
 	[DM_CYMBAL] = { DM_CYMBAL,   0,   0, 150,  60, 120,   0, 140,   0,  40,  FO,    0,  0,  FO },
 	[DM_RIM]    = { DM_RIM,      0,  20, 118, 120, 100,   0, 170,   0,  13,  FO,    0,  0,  FO },
 	[DM_FM]     = { DM_FM,       0,  30, 148, 110, 180,   0, 160,  70,  17,  FO,    0,  0,  FO },

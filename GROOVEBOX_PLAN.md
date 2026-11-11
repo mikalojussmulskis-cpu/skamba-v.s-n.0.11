@@ -814,3 +814,13 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 |---|---|---|---|
 | Phase 16 default | 407,932 | 13,956 | 30,540 |
 | **Phase 17 default** | **408,128** | **13,760** | **30,540** |
+
+### Phase 18: shorter, higher default kicks; 25 Hz high-pass on the drum bus (done)
+- **Default Kick**: +2 semitones (tune 10), decay 78: rings 0.73 s instead of 1.9 s (−60 dB), pitch at 50 ms 61 Hz instead of 53 Hz. **Default Kick2**: +2 semitones, decay 80: 0.54 s instead of 0.86 s. New / cleared patterns, a lane switched to a kick, and Clear's sound reset use these; saved patterns keep their kicks.
+- **25 Hz high-pass** (2-pole Butterworth) on the whole drum output, the same cut for every lane (kicks, Bass, Acid, everything); Plinky's synth is not affected. Removes DC and sub rumble: DC over a hit Kick −7.8 → −2.8, Tom −11.7 → −0.3, Bass +9.3 → 0; a 50 Hz kick loses about 0.3 dB. Its state clears when all drums stop.
+- Host tests t3 16, t4 15, t5 20, t6 17, t7 (FX on) 27, t8 13 pass; labs stable. `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 17 default | 408,128 | 13,760 | 30,540 |
+| **Phase 18 default** | **408,320** | **13,568** | **30,548** |

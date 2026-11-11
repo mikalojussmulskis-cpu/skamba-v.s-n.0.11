@@ -157,9 +157,11 @@ static void exc_filter(DrumVoice* d, int mode, float fc, float q) {
 
 // ---------------------------------------------------------------------------
 
+static float sub_s[2]; // 25 Hz high-pass on the dry bus (DC and sub rumble), see drums_render
 void drums_stop_all(void) {
 	for (int v = 0; v < VOICES; ++v)
 		dv[v].active = 0;
+	sub_s[0] = sub_s[1] = 0.f;
 }
 
 static int is_kick(int model) {
@@ -881,6 +883,12 @@ HOT void drums_render(int master, int djfilter, int comp) {
 	}
 	else
 		comp_gain = comp_out = 1.f;
+
+	{ // 2-pole Butterworth high-pass at 25 Hz: removes DC and sub rumble, a 50 Hz kick loses 0.3 dB
+		const float g = 3.14159265f * 25.f / SR, k = 1.41421356f; // tan(x) ~ x this low
+		const float a1 = 1.f / (1.f + g * (g + k)), a2 = g * a1, a3 = g * a2;
+		dj_filter_pass(drum_bus_dry, DRUM_BLOCK, sub_s, a1, a2, a3, k, 0.f);
+	}
 
 	// output: the bus holds BUS_SCALE of the signal and the output stage has gain 3.
 	// Below 70 % of full scale it is linear (no colouring of single hits); above, a
