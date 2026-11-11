@@ -30,10 +30,10 @@
 #define PH32 4294967296.f // 2^32: phase scale of the metal oscillators
 #define SUB 32            // voices are rendered in sub-blocks of 32 samples (keeps the ISR stack small)
 
+// follows the default kit (kick, snare, clap, hats, rim, bass, acid), then the colour models
 const uint8_t drum_model_order[DM_LAST] = {
-	DM_KICK, DM_KICK2, DM_BASS, DM_ACID, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_CYMBAL,
-	DM_TOM, DM_RIM, DM_PERC, DM_FM, DM_CLANG, DM_ZAP, DM_CHIRP,
-	DM_FOLD, DM_GLITCH, DM_CRUSH, DM_SAMPLE,
+	DM_KICK, DM_KICK2, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_CYMBAL, DM_RIM, DM_PERC, DM_TOM,
+	DM_BASS, DM_ACID, DM_FM, DM_CLANG, DM_ZAP, DM_CHIRP, DM_FOLD, DM_GLITCH, DM_CRUSH, DM_SAMPLE,
 };
 
 const char* const drum_model_names[DM_LAST] = {
@@ -364,8 +364,8 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		d->osc = OSC_FM;
 		d->dph = 190.f * t / SR;
 		d->dph2 = d->dph * fm_ratios[(int)(c * 7.99f)];
-		d->idx = 0.05f + n * 1.4f;
-		d->ki = kdecay(erange(dec, 0.006f, 5.4f) * 0.7f);
+		d->idx = 0.03f + n * (0.3f + n * 0.5f);        // gentle at low snap (was up to 1.45 cycles: harsh)
+		d->ki = kdecay(erange(dec, 0.006f, 5.4f) * 0.5f); // the brightness fades faster than the tone
 		d->penv = s * 2.f;
 		d->kp = kdecay(0.03f);
 		d->at = g;
@@ -402,8 +402,8 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		d->osc = OSC_FM;
 		d->dph = 320.f * t / SR;
 		d->dph2 = d->dph * clang_ratios[(int)(c * 3.99f)];
-		d->idx = 0.4f + n * 1.6f;
-		d->ki = kdecay(erange(dec, 0.01f, 5.f) * 0.8f);
+		d->idx = 0.2f + n * (0.4f + n * 0.5f);
+		d->ki = kdecay(erange(dec, 0.01f, 5.f) * 0.6f);
 		d->penv = s * 1.5f;
 		d->kp = kdecay(0.01f);
 		d->at = g * 0.8f;
@@ -421,7 +421,7 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		d->osc = OSC_FM;
 		d->dph = 900.f * t / SR;
 		d->dph2 = d->dph * 2.f;
-		d->idx = n * 1.2f;
+		d->idx = n * 0.8f;
 		d->ki = kdecay(0.08f);
 		d->penv = -0.92f * (0.3f + 0.7f * s);
 		d->kp = kdecay(0.004f + c * 0.12f);
@@ -451,14 +451,14 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		d->fold = 0.25f + c * 1.25f;
 		d->penv = s * 2.f;
 		d->kp = kdecay(0.008f);
-		d->at = g;
-		d->kt = 1.f;                 // holds ...
-		d->kt_rel = kdecay(0.02f);   // ... then a 20 ms release
+		d->a0 = g;                   // 3 ms attack up to g (soft start, no click) ...
+		d->at = g * 0.02f;
+		d->kt = 1.0425f;
+		d->kt_rel = kdecay(0.02f);   // ... holds, then a 20 ms release
 		d->hold = (uint16_t)(erange(dec, 0.03f, 5.5f) * (SR / DRUM_BLOCK)); // 30 ms .. 1.4 s
 		d->an = g * n * 0.5f;
 		d->kn = kdecay(0.002f);
-		exc_filter(d, EF_HP, 1500.f, 0.7f);
-		d->drv0 = 0.4f;
+		exc_filter(d, EF_LP, 2500.f, 0.7f); // Snap: a soft thump rather than a click
 		break;
 	case DM_ACID: // 303 style: DPW saw -> square (colour), 4-pole ladder with envelope (decay, depth = Filter Env),
 		// accent (snap), glide between slid steps (sweep = slide time); held for the gate, 12 ms release
@@ -560,6 +560,7 @@ HOT static void pass_fm(DrumVoice* d, float* buf, int n) {
 HOT static void pass_fold(DrumVoice* d, float* buf, int n) {
 	float ph = d->ph, ph2 = d->ph2, penv = d->penv, at = d->at;
 	const float dph = d->dph, dph2 = d->dph2, kp = d->kp, kt = d->kt, rm = d->rm, fg = d->fold;
+	const float amax = d->a0 > 0.f ? d->a0 : 1e9f; // attack (Bass): grows until a0
 	for (int i = 0; i < n; ++i) {
 		float pm = 1.f + penv;
 		ph += dph * pm;
@@ -572,6 +573,7 @@ HOT static void pass_fold(DrumVoice* d, float* buf, int n) {
 		q -= (float)(int)q;
 		buf[i] = psin(q) * at;
 		at *= kt;
+		at = at > amax ? amax : at;
 		penv *= kp;
 	}
 	d->ph = ph; d->ph2 = ph2; d->penv = penv; d->at = at;
@@ -828,10 +830,10 @@ HOT void drums_render(int master, int djfilter, int comp) {
 					rv[i] = sat16(rv[i] + (int32_t)(x * grv));
 				}
 			}
-			// 7) declick: the hit this voice replaced (retrigger or steal) fades out over ~1 ms
+			// 7) declick: the hit this voice replaced (retrigger or steal) fades out over ~2 ms
 			if (d->dc != 0.f) {
 				float dc = d->dc;
-				for (int i = 0; i < SUB; ++i, dc *= 0.93f)
+				for (int i = 0; i < SUB; ++i, dc *= 0.985f)
 					dry[i] = sat16(dry[i] + (int32_t)dc);
 				d->dc = fabs_(dc) > 1.f ? dc : 0.f;
 			}
@@ -880,12 +882,19 @@ HOT void drums_render(int master, int djfilter, int comp) {
 	else
 		comp_gain = comp_out = 1.f;
 
-	// output: the bus holds BUS_SCALE of the signal; a cubic soft clip with a 1.5x
-	// knee brings it to full scale (gain 3 for small signals, 1.0 beyond the knee),
-	// so stacked hits saturate smoothly instead of clipping hard
+	// output: the bus holds BUS_SCALE of the signal and the output stage has gain 3.
+	// Below 70 % of full scale it is linear (no colouring of single hits); above, a
+	// soft knee y = t + (1 - t) z / (1 + z) bends stacked hits smoothly towards full
+	// scale instead of clipping hard (slope 1 at the knee, so no kink).
+	const float t = 0.7f;
 	for (int i = 0; i < DRUM_BLOCK; ++i) {
 		float x = drum_bus_dry[i] * (1.5f / (32768.f * BUS_SCALE));
-		x = x > 1.5f ? 1.5f : x < -1.5f ? -1.5f : x;
-		drum_bus_dry[i] = (int16_t)((x - 0.148148f * x * x * x) * 32767.f);
+		float a = fabs_(x);
+		if (a > t) {
+			float z = (a - t) * (1.f / (1.f - t));
+			a = t + (1.f - t) * z / (1.f + z);
+			x = x < 0.f ? -a : a;
+		}
+		drum_bus_dry[i] = (int16_t)(x * 32767.f);
 	}
 }

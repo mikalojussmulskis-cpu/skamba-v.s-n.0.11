@@ -106,11 +106,11 @@ static const DrumParams model_default[DM_LAST] = {
 	[DM_CLANG]  = { DM_CLANG,    0,  20, 150, 140, 120,   0, 160,   0,  20,  FO,    0,  0,  FO },
 	[DM_CHIRP]  = { DM_CHIRP,    0, 180, 110,  80,  60,   0, 170,   0,  10,  FO,    0,  0,  FO },
 	[DM_CRUSH]  = { DM_CRUSH,    0,  80, 110, 100, 170,   0, 180,   0,   0,  FO,    0,  0,  FO },
-	[DM_BASS]   = { DM_BASS,     0,  30, 115,  40, 100,  20, 200,   0,   0, 102,   77,  0, 217 },
+	[DM_BASS]   = { DM_BASS,     0,  30, 115,   0,  13,   0, 128,   0,   0,  51,   77,  0, 166 },
 	[DM_ACID]   = { DM_ACID,     0,  60,  77, 150,   0,  20, 128,   0,  10,  64,  190,  0, 208 },
 };
 #undef FO
-static const u8 kit_models[GROOVE_LANES] = { DM_KICK, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_TOM, DM_RIM, DM_FM };
+static const u8 kit_models[GROOVE_LANES] = { DM_KICK, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_RIM, DM_BASS, DM_ACID };
 
 // ---------------------------------------------------------------------------
 // Pad layout in the drum grid
@@ -693,21 +693,30 @@ void groove_pad_up(int fi) {
 	pad_row[fi] = 255;
 }
 
-// Clear held in the drum grid: the selected lane loses its steps, locks, modulation
-// and loop (back to 1-16) and gets its model's default sound. Mute and model stay.
+// Clear held in the drum grid, on the selected lane. Two stages:
+// 1) the lane has steps: they go, with their locks / conditions, and the loop goes back to 1-16;
+// 2) the lane is already empty: its sound goes back to its model's default and its modulation goes.
+// Mute and model stay.
 void groove_clear_lane(void) {
 	int l = lane_sel;
 	GrooveLane* ln = &pat.lane[l];
-	memset(pat.step[l], 0, sizeof(pat.step[l]));
-	for (int i = pat.nlocks - 1; i >= 0; --i)
-		if (pat.lock[i].lane == l)
-			pat.lock[i] = pat.lock[--pat.nlocks];
-	for (int i = pat.nmods - 1; i >= 0; --i)
-		if (pat.mod[i].lane == l)
-			pat.mod[i] = pat.mod[--pat.nmods];
-	ln->snd = model_default[ln->snd.model < DM_LAST ? ln->snd.model : DM_KICK];
-	ln->length = GROOVE_PAGE;
-	LANE_SET_START(ln, 0);
+	int has_steps = 0;
+	for (int i = 0; i < GROOVE_STEPS; ++i)
+		has_steps |= pat.step[l][i] & STEP_TRIG;
+	if (has_steps) {
+		memset(pat.step[l], 0, sizeof(pat.step[l]));
+		for (int i = pat.nlocks - 1; i >= 0; --i)
+			if (pat.lock[i].lane == l)
+				pat.lock[i] = pat.lock[--pat.nlocks];
+		ln->length = GROOVE_PAGE;
+		LANE_SET_START(ln, 0);
+	}
+	else {
+		for (int i = pat.nmods - 1; i >= 0; --i)
+			if (pat.mod[i].lane == l)
+				pat.mod[i] = pat.mod[--pat.nmods];
+		ln->snd = model_default[ln->snd.model < DM_LAST ? ln->snd.model : DM_KICK];
+	}
 	if (lock_step != NO_STEP && lock_lane == l)
 		lock_step = NO_STEP;
 	if (acid_gen == l + 1)
@@ -718,7 +727,7 @@ void groove_clear_lane(void) {
 	if (((lane_pos[l] - LANE_START(ln)) & 63) >= ln->length)
 		lane_pos[l] = 0;
 	mark_dirty();
-	ShowMessage(F_20_BOLD, lane_names[l], "cleared");
+	ShowMessage(F_20_BOLD, lane_names[l], has_steps ? "steps cleared" : "sound reset");
 }
 
 int groove_lock_active(void) {

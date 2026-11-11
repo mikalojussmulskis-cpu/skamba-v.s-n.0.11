@@ -799,3 +799,18 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 |---|---|---|---|
 | Phase 15 default | 407,528 | 14,360 | 30,540 |
 | **Phase 16 default** | **407,932** | **13,956** | **30,540** |
+
+### Phase 17: bass polish, softer FM / Clang / Chirp, cleaner output stage, new default kit, two-stage Clear (done)
+- **Bass**: 3 ms attack (soft start), no built-in drive, Snap is now a low-passed thump instead of a high-passed click. New default sound: level 50, LP 40, filter env +30, colour 5, no snap, no drive (sweep 12, decay 45, resonance 30, reverb 0).
+- **Declick** of a retriggered or stolen voice now fades over ~2 ms instead of ~0.5 ms (a softer edge, mostly audible on bass and long sounds).
+- **FM / Clang / Chirp** modulation index curves tamed (FM was up to 1.45 cycles ≈ 9 rad, Clang 2 cycles; the index also fades faster than the tone). Energy in the 2–5 kHz band: FM 2.4 → 0.7 %, Clang 5.5 → 2.8 %, Chirp 10.1 → 8.5 %. Raise Snap for the old brightness.
+- **Output stage**: linear below 70 % of full scale, soft knee above (y = t + (1 − t)·z / (1 + z)). The old cubic curve coloured every hit at the default volume (most default hits peak at −1 … −4 dBFS); same loudness, cleaner single hits.
+- Bass max sample step: start 527 → 150, retrigger 1046 → 231 (lab `harsh.c`).
+- **Default kit** (new / cleared patterns): Kick, Snare, Clap, C.Hat, O.Hat, Rim, Bass, Acid (Tom and FM left the kit). **Model order** (Drum Type pad / encoder) follows the kit: Kick, Kick2, Snare, Clap, C.Hat, O.Hat, Cymbal, Rim, Cowbell, Tom, Bass, Acid, FM, Clang, Zap, Chirp, Fold, Glitch, Crush, Sample.
+- **Clear held, two stages**: a lane with steps loses its steps, locks and conditions, and its loop goes back to 1–16 (sound kept, `steps cleared`); holding Clear again on the now empty lane resets its sound to the engine's default and removes its modulation (`sound reset`).
+- Host tests t3 16, t4 15, t5 20, t6 17, t7 (FX on) 27, t8 13 pass; labs stable. `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| Phase 16 default | 407,932 | 13,956 | 30,540 |
+| **Phase 17 default** | **408,128** | **13,760** | **30,540** |
