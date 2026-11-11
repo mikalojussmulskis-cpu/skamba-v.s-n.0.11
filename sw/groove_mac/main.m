@@ -161,7 +161,7 @@ static int step_x(int i) { return STEP_X + i * 36 + (i / 4) * 4; }
 	NSButton* playBtn;
 	NSSlider* bpmSlider; NSTextField* bpmLabel;
 	NSPopUpButton* slotPop;
-	NSSlider* bus[4]; NSTextField* busVal[4];
+	NSSlider* bus[5]; NSTextField* busVal[5];
 	NSTextField* title; NSTextField* status; NSTextField* pageLabel; NSTextField* loopLabel;
 	NSPopUpButton* modelPop; NSPopUpButton* condPop; NSButton* clearLocksBtn; NSButton* newLineBtn;
 	NSSlider* fs[14]; NSTextField* fv[14];
@@ -220,12 +220,12 @@ static void audio_cb(void* ud, AudioQueueRef q, AudioQueueBufferRef b) {
 	for (int i = 0; i < 24; ++i) [slotPop addItemWithTitle:[NSString stringWithFormat:@"Pattern %d", i + 1]];
 	slotPop.target = self; slotPop.action = @selector(slot:);
 	[cv addSubview:slotPop];
-	NSString* bn[4] = { @"Drum Vol", @"Comp", @"DJ Filter", @"Drive" };
-	for (int i = 0; i < 4; ++i) {
-		CGFloat x = 456 + i * 198;
-		[self label:bn[i] frame:NSMakeRect(x, 18, 60, 18) size:12];
-		bus[i] = [self slider:NSMakeRect(x + 60, 16, 92, 22) min:0 max:255 tag:i action:@selector(busChanged:)];
-		busVal[i] = [self label:@"" frame:NSMakeRect(x + 156, 18, 42, 18) size:12];
+	NSString* bn[5] = { @"Drum Vol", @"Comp", @"DJ Filter", @"Drive", @"Rate" };
+	for (int i = 0; i < 5; ++i) {
+		CGFloat x = 456 + i * 158;
+		[self label:bn[i] frame:NSMakeRect(x, 18, 58, 18) size:12];
+		bus[i] = [self slider:NSMakeRect(x + 58, 16, 60, 22) min:0 max:255 tag:i action:@selector(busChanged:)];
+		busVal[i] = [self label:@"" frame:NSMakeRect(x + 120, 18, 38, 18) size:12];
 	}
 
 	// grid
@@ -381,7 +381,7 @@ static void audio_cb(void* ud, AudioQueueRef q, AudioQueueBufferRef b) {
 		if (values) fs[f].doubleValue = eng_field_get(f);
 		fv[f].stringValue = [NSString stringWithUTF8String:eng_field_str(f, b)];
 	}
-	for (int i = 0; i < 4; ++i) {
+	for (int i = 0; i < 5; ++i) {
 		if (values) bus[i].doubleValue = eng_bus_get(i);
 		busVal[i].stringValue = [NSString stringWithUTF8String:eng_bus_str(i, b)];
 	}

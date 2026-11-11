@@ -69,7 +69,7 @@ typedef struct GroovePattern { // 944 bytes
 	u8 djfilter; // global drum filter (DRUM_FILTER_OFF = off)
 	u8 comp;     // drum bus compressor (0 = off); was reserved (0) before
 	u8 drive;    // global drum overdrive (0 = off); was reserved (0) before
-	u8 rsv;
+	u8 srr;      // global drum sample rate reduction (0 = off); was reserved (0) before
 	GrooveLane lane[GROOVE_LANES];
 	u8 step[GROOVE_LANES][GROOVE_STEPS];
 	GrooveMod mod[GROOVE_MAX_MODS];
@@ -90,18 +90,18 @@ _Static_assert((sizeof(GroovePattern) & 7) == 0, "flash writes are 8-byte units"
 #define FO DRUM_FILTER_OFF
 static const DrumParams model_default[DM_LAST] = {
 	//            model      tune sweep decay snap colour drive level  dly  rvb  filter reso srr  fenv
-	[DM_KICK]   = { DM_KICK,    10, 150,  78,  70, 110,  40, 230,   0,   0,  FO,    0,  0,  FO },
-	[DM_SNARE]  = { DM_SNARE,    0,  40, 115, 130, 150,   0, 200,   0,  13,  FO,    0,  0,  FO },
-	[DM_CLAP]   = { DM_CLAP,     0,   0,  26,   0, 130,   0, 102,   0,  13,  FO,    0,  0,  FO },
-	[DM_CHAT]   = { DM_CHAT,     0,   0, 109,  40, 140,   0, 170,   0,   0,  FO,    0,  0,  FO },
-	[DM_OHAT]   = { DM_OHAT,     0,   0, 102,  40, 140,   0, 150,   0,   7,  77,    0,  0, 217 },
-	[DM_TOM]    = { DM_TOM,    -40,  90, 153,  30,  60,   0, 210,   0,  10,  FO,    0,  0,  FO },
-	[DM_PERC]   = { DM_PERC,     0,   0,  90,   0, 128,  20, 160,   0,   0,  FO,    0,  0,  FO },
+	[DM_KICK]   = { DM_KICK,     5, 165,  66,  70, 110,  55, 230,   0,   0,  FO,    0,  0,  FO },
+	[DM_SNARE]  = { DM_SNARE,    0,  40,  95, 105, 115,   0, 190,   0,  13,  FO,    0,  0,  FO },
+	[DM_CLAP]   = { DM_CLAP,     0,   0,  22,   0, 120,   0, 102,   0,  13,  FO,    0,  0,  FO },
+	[DM_CHAT]   = { DM_CHAT,     0,   0,  95,  30, 120,   0, 110,   0,   0,  FO,    0,  0,  FO },
+	[DM_OHAT]   = { DM_OHAT,     0,   0,  90,  30, 120,   0, 100,   0,   7,  77,    0,  0, 217 },
+	[DM_TOM]    = { DM_TOM,    -40,  90, 120,  30,  60,   0, 210,   0,  10,  FO,    0,  0,  FO },
+	[DM_PERC]   = { DM_PERC,     0,   0,  80,   0, 128,  20, 150,   0,   0,  FO,    0,  0,  FO },
 	[DM_SAMPLE] = { DM_SAMPLE,   0,   0, 128,   0, 128,   0, 200,   0,   0,  FO,    0,  0,  FO },
-	[DM_KICK2]  = { DM_KICK2,   10, 140,  80,  80, 120,  30, 230,   0,   0,  FO,    0,  0,  FO },
-	[DM_CYMBAL] = { DM_CYMBAL,   0,   0, 150,  60, 120,   0, 140,   0,  40,  FO,    0,  0,  FO },
-	[DM_RIM]    = { DM_RIM,      0,  20, 118, 120, 100,   0, 170,   0,  13,  FO,    0,  0,  FO },
-	[DM_FM]     = { DM_FM,       0,  30, 148, 110, 180,   0, 160,  70,  17,  FO,    0,  0,  FO },
+	[DM_KICK2]  = { DM_KICK2,   10, 140,  68,  80, 120,  30, 230,   0,   0,  FO,    0,  0,  FO },
+	[DM_CYMBAL] = { DM_CYMBAL,   0,   0, 135,  45, 110,   0, 110,   0,  40,  FO,    0,  0,  FO },
+	[DM_RIM]    = { DM_RIM,      0,  20, 105, 120, 100,   0, 160,   0,  13,  FO,    0,  0,  FO },
+	[DM_FM]     = { DM_FM,       0,  30, 120, 110, 180,   0, 160,  70,  17,  FO,    0,  0,  FO },
 	[DM_ZAP]    = { DM_ZAP,      0, 160,  90,  40,  60,   0, 180,   0,   0,  FO,    0,  0,  FO },
 	[DM_GLITCH] = { DM_GLITCH,   0, 100, 110, 120, 160,   0, 180,   0,  10,  FO,    0,  0,  FO },
 	[DM_FOLD]   = { DM_FOLD,     0, 150, 150,  80, 140,   0, 200,   0,   0,  FO,    0,  0,  FO },
@@ -872,6 +872,8 @@ int groove_get_field(int field) {
 		return pat.comp * 4;
 	if (field == GF_BUSDRIVE)
 		return pat.drive * 4;
+	if (field == GF_BUSSRR)
+		return pat.srr * 4;
 	if (field == GF_COND)
 		return byte_to_value(GF_COND, cond_value());
 #if GROOVE_FX
@@ -908,8 +910,8 @@ void groove_set_field(int field, int value) {
 		return;
 	}
 	if (field >= GF_VOLUME) { // whole drum bus
-		u8* b = (field == GF_VOLUME) ? &pat.volume : (field == GF_DJFILTER) ? &pat.djfilter : (field == GF_COMP) ? &pat.comp : &pat.drive;
-		if (field > GF_COMP && field != GF_BUSDRIVE) return;
+		u8* b = (field == GF_VOLUME) ? &pat.volume : (field == GF_DJFILTER) ? &pat.djfilter : (field == GF_COMP) ? &pat.comp : (field == GF_BUSDRIVE) ? &pat.drive : &pat.srr;
+		if (field > GF_COMP && field != GF_BUSDRIVE && field != GF_BUSSRR) return;
 		*b = clampi(qdiv(value, *b * 4, 4), 0, 255);
 		mark_dirty();
 		return;
@@ -1002,11 +1004,11 @@ static const char* const field_names[] = {
 	[GF_SRR] = "Sample Rate", [GF_FENV] = "Filter Env", [GF_VOLUME] = "Drum Vol", [GF_DJFILTER] = "Drums Filter", [GF_COMP] = "Drum Comp",
 	[GF_COND] = "Condition",
 	[GF_ROLL] = "Roll", [GF_RATCHET] = "Ratchet", [GF_REVERSE] = "Reverse", [GF_PITCHFALL] = "Pitch Fall", [GF_GATE] = "Gate", [GF_CRUSH] = "Crush",
-	[GF_BUSDRIVE] = "Drum Drive",
+	[GF_BUSDRIVE] = "Drum Drive", [GF_BUSSRR] = "Drum Rate",
 };
 
 const char* groove_field_name(int field) {
-	return (field >= 0 && field <= GF_BUSDRIVE) ? field_names[field] : "";
+	return (field >= 0 && field <= GF_BUSSRR) ? field_names[field] : "";
 }
 
 const char* groove_field_page(int field) {
@@ -1076,7 +1078,7 @@ const char* groove_field_str(int field, char* buf) {
 	if (FX_IS(field))
 		return fx_str(field, buf);
 #endif
-	u8 b = (field == GF_DJFILTER) ? pat.djfilter : (field == GF_COMP) ? pat.comp : (field == GF_BUSDRIVE) ? pat.drive : field_byte(field);
+	u8 b = (field == GF_DJFILTER) ? pat.djfilter : (field == GF_COMP) ? pat.comp : (field == GF_BUSDRIVE) ? pat.drive : (field == GF_BUSSRR) ? pat.srr : field_byte(field);
 	switch (field) {
 	case GF_FENV:
 		if (b == DRUM_FILTER_OFF)
@@ -1085,6 +1087,7 @@ const char* groove_field_str(int field, char* buf) {
 		return buf;
 	case GF_COMP:
 	case GF_BUSDRIVE:
+	case GF_BUSSRR:
 	case GF_SRR:
 		if (!b)
 			return "Off";
@@ -1469,7 +1472,7 @@ void groove_audio(void) {
 		if (pat.mod[i].lane == LANE_ALL && pat.mod[i].source >= MOD_A && pat.mod[i].source <= MOD_Y)
 			dj += (int)(mod_value(&pat.mod[i], 0) * pat.mod[i].amount * (255.f / 127.f));
 	dj_eff = clampi(dj, 0, 255);
-	drums_render(pat.volume, dj_eff, pat.comp, pat.drive);
+	drums_render(pat.volume, dj_eff, pat.comp, pat.drive, pat.srr);
 #if GROOVE_FX
 	if (fx_on & FX_BIT(GF_GATE)) { // trance gate: open for the first half of each period, 2 ms ramps
 		int period = maxi((step_ticks_now * 4) >> (fx_set[FX_GATE] + 1), 2);
@@ -1632,7 +1635,8 @@ static void draw_stage(int boombox) {
 
 // start-up screen: instead of the Plinky logo, the cat gallops in from the right,
 // across the screen and out on the left (gallop cycle: stretch, mid, gather, mid;
-// the art faces left), with the firmware name below it where "v0.B4" used to be
+// the art faces left). The firmware name sits where Plinky's version always was
+// (x 32, y 20, same font and style); the cat runs in front of it with a black outline.
 static const uint64_t cat_run[3][24] = {
 	{ // stretch
 		0x0000000000000000ull, 0x0000000000000000ull, 0x2010000000000000ull, 0x3030000000000000ull, 0x2850000000000000ull, 0x3ff0000000000000ull, 0x2010000000000000ull, 0x4008000000000000ull, 0x4cc8000000400000ull, 0x4ccfffffe0800000ull, 0xc30c000013000000ull, 0x448800001c000000ull, 0x2010000010000000ull, 0x1fe0000020000000ull, 0x10000000a0000000ull, 0x10000000a0000000ull, 0x1000000050000000ull, 0x145fff8f28000000ull, 0x2850005028000000ull, 0x28a0002828000000ull, 0x50a0001414000000ull, 0x514000140a000000ull, 0xa140000a0a000000ull, 0xf1e0000f0f000000ull },
@@ -1655,17 +1659,29 @@ int groove_boot_frame(void) {
 		return 0;
 	static const u8 cycle[4] = { 0, 1, 2, 1 };
 	int f = cycle[(t / 70) & 3];
-	const int y0 = 0; // rows 0..23; the name sits below on rows 24..31
 	clear();
-	drawstr((128 - strwidth(F_8, VERSION2)) / 2, 24, F_8, VERSION2); // centred on the bottom row
-	for (int y = 0; y < 24; ++y) {
-		uint64_t row = cat_run[f][y];
-		for (int x = 0; x < 42; ++x) {
-			int sx = x0 + x;
-			if (sx >= 0 && sx < 128 && (row & (0x8000000000000000ull >> x)))
-				putpixel(sx, y0 + y, 1);
+	u8 oldcol = textcol;
+	textcol = 3;
+	drawstr(32, 20, F_12, VERSION2); // where Plinky draws its version
+	textcol = oldcol;
+	for (int pass = 0; pass < 2; ++pass) // pass 0: black outline around the cat, pass 1: the cat
+		for (int y = 0; y < 24; ++y) {
+			uint64_t row = cat_run[f][y];
+			for (int x = 0; x < 42; ++x) {
+				if (!(row & (0x8000000000000000ull >> x)))
+					continue;
+				int sx = x0 + x;
+				if (pass == 1) {
+					if (sx >= 0 && sx < 128)
+						putpixel(sx, y, 1);
+					continue;
+				}
+				for (int dy = -1; dy <= 1; ++dy)
+					for (int dx = -1; dx <= 1; ++dx)
+						if (sx + dx >= 0 && sx + dx < 128 && y + dy >= 0 && y + dy < 32)
+							putpixel(sx + dx, y + dy, 0);
+			}
 		}
-	}
 	return 1;
 }
 

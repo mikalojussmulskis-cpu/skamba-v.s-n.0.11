@@ -65,7 +65,7 @@ int  eng_cond_get(void);
 void eng_cond_set(int c);
 
 // whole drum bus
-int  eng_bus_get(int which);                     // 0 volume, 1 compressor, 2 DJ filter, 3 drive (bytes)
+int  eng_bus_get(int which);                     // 0 volume, 1 compressor, 2 DJ filter, 3 drive, 4 sample rate (bytes)
 void eng_bus_set(int which, int value);
 const char* eng_bus_str(int which, char* buf32);
 

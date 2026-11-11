@@ -851,6 +851,7 @@ static int groove_field_for_param(int p) {
 	if (!GROOVE_GRID) return -1;
 	if (p == P_CV_QUANT) return GF_COMP;    // mixer row, unprinted 5th pad: drum compressor (Params 1) ...
 	if (p == P_ACCEL_SENS) return GF_BUSDRIVE; // ... and drum overdrive (Params 2)
+	if (p == P_MIDI_CH_OUT) return GF_BUSSRR;  // mixer row, Params 2, between drum volume and drive: drum sample rate
 	switch (p) {
 	case P_DLSEND: return GF_DLSEND;
 	case P_RVSEND: return GF_RVSEND;

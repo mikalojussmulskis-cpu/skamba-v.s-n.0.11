@@ -892,3 +892,22 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 - The cat now gallops in from the **right** and leaves on the **left** (the art faces left, drawn as is), on rows 0–23 without the dip, so its feet never touch the text.
 - The firmware name **v.s-n.0.1** is written on the start-up screen where "v0.B4" used to be: centred on the bottom row (8 px font, rows 24–31), under the running cat. The "groove on" message no longer shows it.
 - Tests pass (t8: the run starts at the right edge, ends at the left edge, 1,600 ms). `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical.
+
+### Phase 25: drum sample rate pad, drum voicing for low-end punch, start-up name back in place (done)
+- **Drum Rate** (global sample rate reduction, per pattern, stored in the last reserved byte; 0 = off, old patterns off): Params 2 + the mixer-row pad between Drum Vol and Drum Drive (MIDI out channel outside the drum grid). Sample & hold down to 1/64 of the rate, last before the output stage so the steps stay crisp (verified: 20 value changes in 1,280 samples at 100 %).
+- **Voicing**, measured with `balance.c` (default-kit groove at 120 BPM, velocity 5; octave bands relative to 1 kHz):
+
+  | | 63 Hz | 125 Hz | 2 kHz | 4 kHz | 8 kHz | 12 kHz |
+  |---|---|---|---|---|---|---|
+  | before | +15.3 | +14.9 | −2.1 | −1.0 | +0.3 | +0.2 |
+  | after | +14.2 | +14.7 | −3.5 | −5.0 | −5.8 | −6.1 |
+
+  The lows were not missing; the top end was ~6–8 dB too hot (hats and snare noise), which made the kick sound thin. Fixes: a fixed **high shelf** on the drum output (−4.4 dB above ~4 kHz, applies to every pattern) and a revoiced default kit (new / cleared patterns): Kick tune +1 st, sweep 165, decay 66, drive 55 (367 ms instead of 453, +0.3 dB punch at 60–125 Hz in the first 80 ms, −2.9 dB boom after 150 ms); Snare decay 95, snap 105, colour 115, level 190 (239 ms instead of 327); Clap decay 22, colour 120; C.Hat decay 95, snap 30, colour 120, level 110; O.Hat decay 90, level 100; Rim decay 105, level 160; Kick2 decay 68; Tom decay 120; Cymbal decay 135, level 110; FM decay 120; Cowbell decay 80. Overall loudness unchanged (groove RMS −18.2 dBFS).
+- Shelf and sample-rate states are cleared when all drums stop (a kick alone is again bit-identical with the compressor at 0 and 100 %). Note: since kicks bypass the compressor, a full-velocity kick + bass stack reaches the soft knee of the output stage (rounded, not clipped).
+- **Start-up**: the name v.s-n.0.1 is drawn exactly where Plinky drew "v0.B4" (x 32, y 20, 12 px font, Plinky's shadow style); the running cat replaces the Plinky logo and runs in front of the text with a 1-px black outline.
+- Host tests pass; labs stable (3,078 configs, 0 unstable). `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical. Mac app: Rate slider.
+
+| Build | App flash used | Flash free | Static RAM |
+|---|---|---|---|
+| v.s-n.0.1 (phase 24) | 410,520 | 11,368 | 30,552 |
+| **phase 25** | **410,812** | **11,076** | **30,576** |

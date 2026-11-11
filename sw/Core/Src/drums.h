@@ -55,6 +55,7 @@ void drums_trigger(int lane, const DrumParams* p, int vel); // vel 1..7 (audio I
 void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato);
 // master volume 0..255; djfilter: global drum filter like the lane filter byte;
 // comp: drum bus compressor amount 0 (off) .. 255 (kicks bypass it);
-// drive: global overdrive / wavefolder 0 (off) .. 255 (audio ISR)
-void drums_render(int master, int djfilter, int comp, int drive);
+// drive: global overdrive / wavefolder 0 (off) .. 255;
+// srr: global sample rate reduction 0 (off) .. 255 = 1/64 of the rate (audio ISR)
+void drums_render(int master, int djfilter, int comp, int drive, int srr);
 void drums_stop_all(void);

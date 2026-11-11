@@ -165,10 +165,15 @@ static void exc_filter(DrumVoice* d, int mode, float fc, float q) {
 // ---------------------------------------------------------------------------
 
 static float sub_s[2]; // 25 Hz high-pass on the dry bus (DC and sub rumble), see drums_render
+static float shelf_lp;  // high shelf of the drum output
+static float bus_srr_acc[2], bus_srr_hold[3]; // global sample rate reduction
 void drums_stop_all(void) {
 	for (int v = 0; v < VOICES; ++v)
 		dv[v].active = 0;
 	sub_s[0] = sub_s[1] = 0.f;
+	shelf_lp = 0.f;
+	bus_srr_acc[0] = bus_srr_acc[1] = 0.f;
+	bus_srr_hold[0] = bus_srr_hold[1] = bus_srr_hold[2] = 0.f;
 }
 
 static int is_kick(int model) {
@@ -748,7 +753,45 @@ static void bus_drive(int drive) {
 	bus_drive_pass(drum_bus_rv, DRUM_BLOCK / 2, g, post);
 }
 
-HOT void drums_render(int master, int djfilter, int comp, int drive) {
+// global sample rate reduction: sample & hold at a lower rate (dry at full rate, sends at half)
+static void bus_srr_pass(int16_t* x, int n, float rate, float* acc, float* hold) {
+	float a = *acc, h = *hold;
+	for (int i = 0; i < n; ++i) {
+		a += rate;
+		if (a >= 1.f) { a -= 1.f; h = x[i]; }
+		x[i] = (int16_t)h;
+	}
+	*acc = a; *hold = h;
+}
+static void bus_srr(int srr) {
+	const float rate = fexp2(srr * (-6.f / 255.f));
+	bus_srr_pass(drum_bus_dry, DRUM_BLOCK, rate, &bus_srr_acc[0], &bus_srr_hold[0]);
+	const float r2 = rate * 2.f > 1.f ? 1.f : rate * 2.f;
+	float a = bus_srr_acc[1];
+	bus_srr_pass(drum_bus_dl, DRUM_BLOCK / 2, r2, &a, &bus_srr_hold[1]);
+	bus_srr_pass(drum_bus_rv, DRUM_BLOCK / 2, r2, &bus_srr_acc[1], &bus_srr_hold[2]);
+}
+
+// voicing of the drum output: a high shelf, so hats and noise don't hide the kick
+// and bass (a typical drum mix falls off up top)
+#ifndef SHELF_K
+#define SHELF_K 0.55f   // one-pole split at ~4 kHz (1 - e^(-2 pi fc / 31250))
+#endif
+#ifndef SHELF_CUT
+#define SHELF_CUT 0.6f  // -4.4 dB above the split
+#endif
+static void bus_shelf(void) {
+	const float k = SHELF_K, cut = SHELF_CUT;
+	float lp = shelf_lp;
+	for (int i = 0; i < DRUM_BLOCK; ++i) {
+		float x = drum_bus_dry[i];
+		lp += k * (x - lp);
+		drum_bus_dry[i] = sat16((int32_t)(lp + (x - lp) * cut));
+	}
+	shelf_lp = lp;
+}
+
+HOT void drums_render(int master, int djfilter, int comp, int drive, int srr) {
 	memset(drum_bus_dry, 0, sizeof(drum_bus_dry));
 	memset(drum_bus_dl, 0, sizeof(drum_bus_dl));
 	memset(drum_bus_rv, 0, sizeof(drum_bus_rv));
@@ -926,12 +969,15 @@ HOT void drums_render(int master, int djfilter, int comp, int drive) {
 
 	if (drive)
 		bus_drive(drive);
+	bus_shelf();
 
 	{ // 2-pole Butterworth high-pass at 25 Hz: removes DC and sub rumble, a 50 Hz kick loses 0.3 dB
 		const float g = 3.14159265f * 25.f / SR, k = 1.41421356f; // tan(x) ~ x this low
 		const float a1 = 1.f / (1.f + g * (g + k)), a2 = g * a1, a3 = g * a2;
 		dj_filter_pass(drum_bus_dry, DRUM_BLOCK, sub_s, a1, a2, a3, k, 0.f);
 	}
+	if (srr) // last before the output stage, so its steps stay crisp
+		bus_srr(srr);
 
 	// output: the bus holds BUS_SCALE of the signal and the output stage has gain 2,
 	// so one full hit (-3.5 dBFS at full level and volume) and a compressed stack of
