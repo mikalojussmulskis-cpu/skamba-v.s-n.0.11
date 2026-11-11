@@ -887,3 +887,8 @@ Stack estimate: about 550 B free (1,080 measured − 388 static − 144 deeper `
 |---|---|---|---|
 | Phase 23 default | 409,700 | 12,188 | 30,544 |
 | **v.s-n.0.1** | **410,520** | **11,368** | **30,552** |
+
+### v.s-n.0.1 update: start-up runs right to left, name on the start-up screen (done)
+- The cat now gallops in from the **right** and leaves on the **left** (the art faces left, drawn as is), on rows 0–23 without the dip, so its feet never touch the text.
+- The firmware name **v.s-n.0.1** is written on the start-up screen where "v0.B4" used to be: centred on the bottom row (8 px font, rows 24–31), under the running cat. The "groove on" message no longer shows it.
+- Tests pass (t8: the run starts at the right edge, ends at the left edge, 1,600 ms). `GROOVE=0 FACTORY_TEST_JIG=1` byte-identical.
