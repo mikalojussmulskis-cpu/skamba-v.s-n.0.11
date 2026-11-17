@@ -35,7 +35,7 @@
 // follows the default kit (kick, snare, clap, hats, rim, bass, acid), then the colour models
 const uint8_t drum_model_order[DM_LAST] = {
 	DM_KICK, DM_KICK2, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_CYMBAL, DM_RIM, DM_PERC, DM_TOM,
-	DM_BASS, DM_ACID, DM_FM, DM_CLANG, DM_ZAP, DM_CHIRP, DM_FOLD, DM_GLITCH, DM_CRUSH, DM_LXR_DRUM, DM_SAMPLE,
+	DM_BASS, DM_ACID, DM_FM, DM_CLANG, DM_ZAP, DM_CHIRP, DM_FOLD, DM_GLITCH, DM_CRUSH, DM_LXR_DRUM, DM_LXR_SNARE, DM_SAMPLE,
 };
 
 const char* const drum_model_names[DM_LAST] = {
@@ -43,7 +43,7 @@ const char* const drum_model_names[DM_LAST] = {
 	[DM_CHAT] = "C.Hat", [DM_OHAT] = "O.Hat", [DM_CYMBAL] = "Cymbal", [DM_TOM] = "Tom",
 	[DM_RIM] = "Rim", [DM_PERC] = "Cowbell", [DM_FM] = "FM", [DM_ZAP] = "Zap", [DM_SAMPLE] = "Sample",
 	[DM_GLITCH] = "Glitch", [DM_FOLD] = "Fold", [DM_CLANG] = "Clang", [DM_CHIRP] = "Chirp", [DM_CRUSH] = "Crush",
-	[DM_BASS] = "Bass", [DM_ACID] = "Acid", [DM_LXR_DRUM] = "LXR Drum",
+	[DM_BASS] = "Bass", [DM_ACID] = "Acid", [DM_LXR_DRUM] = "LXR Drum", [DM_LXR_SNARE] = "LXR Snare",
 };
 
 enum { OSC_NONE, OSC_SINE, OSC_SINE2, OSC_FM, OSC_FOLD, OSC_ACID, OSC_LXR };
@@ -88,6 +88,9 @@ typedef struct DrumVoice {
 			float pamt, snamt, fmamt;      // pitch EG amount, snap amount, FM amount (the LXR's fmModAmount)
 			float sn, ksn;                 // snap EG value (1 -> 0) and its step per sub-block
 			float ga, vg;                  // amp EG gain at the end of the last sub-block, velocity gain
+			uint32_t nph, ninc;            // noise oscillator: a new random value each time its phase wraps
+			float nhold, lnmix;            // ... its current value, and the noise / tone mix
+			float ns1, ns2, na1, na2, na3, nk; // the voice's own 2-pole filter on the noise (high-pass)
 		};
 	};
 	// resonant filter state
@@ -170,6 +173,16 @@ static float lxr_step(float x, float K) {
 static float lxr_slope(float v, float scale) {
 	float a = (v * (1.f / 127.f) - 0.5f) * scale;
 	return 2.f * a / (1.f - a);
+}
+
+// 2-pole state-variable filter coefficients (the same filter as exc_filter / the lane filter)
+static void svf_coefs(float fc, float q, float* a1, float* a2, float* a3, float* k) {
+	if (fc > 13000.f) fc = 13000.f;
+	float g = tanpade(3.14159265f * fc / SR);
+	*k = 1.f / q;
+	*a1 = 1.f / (1.f + g * (g + *k));
+	*a2 = g * *a1;
+	*a3 = g * *a2;
 }
 
 // set up the excitation filter: mode EF_LP / EF_BP / EF_HP, cutoff, Q.
@@ -535,6 +548,29 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		d->ksn = 0.2f * LXR_BLK;          // snap time 1 (about 7 ms)
 		d->fmamt = c;
 		break;
+	case DM_LXR_SNARE: // LXR-02 snare: sine (pitch EG = sweep, snap) mixed with sample-and-hold noise
+		// (colour = tone -> noise) through the snare's own high-pass, both under one slope amp EG (decay);
+		// the noise rate and filter follow Tune
+		d->osc = OSC_LXR;
+		d->dph = 180.f * t / SR;
+		d->ph = 0.25f;
+		d->at = d->ga = 1.f;
+		d->vg = g;
+		d->kt = lxr_step(dec * (100.f / 255.f / 127.f), 1998.f);
+		d->ka = lxr_slope(40.f, 1.999f);
+		d->penv = 1.f;
+		d->kp = lxr_step((10.f + s * 30.f) * (1.f / 127.f), 198.f);
+		d->kpe = lxr_slope(20.f, 2.f);
+		d->pamt = s * s * 32.f;
+		d->sn = 1.f;
+		d->snamt = n;
+		d->ksn = 0.2f * LXR_BLK;
+		d->lnmix = c;
+		{ float nf = 16000.f * t; d->ninc = nf >= SR ? 0xffffffffu : (uint32_t)(nf * (PH32 / SR)); }
+		d->nhold = 0.f;
+		d->ns1 = d->ns2 = 0.f;
+		svf_coefs(1000.f * t, 0.7f, &d->na1, &d->na2, &d->na3, &d->nk);
+		break;
 	case DM_ZAP: // huge fast pitch sweep (colour = sweep time)
 		d->osc = OSC_SINE;
 		d->dph = 55.f * t / SR;
@@ -691,6 +727,30 @@ HOT static void pass_lxr(DrumVoice* d, float* buf, int n) {
 	const float dph2 = d->dph2, idx = d->fmamt * d->fmamt * pes, vg = d->vg;
 	float ph = d->ph, ph2 = d->ph2, gn = d->ga * vg;
 	const float dg = (g1 * vg - gn) / (float)n;
+	d->ga = g1;
+	if (d->model == DM_LXR_SNARE) { // tone + filtered sample-and-hold noise
+		uint32_t nph = d->nph, rng = d->rng;
+		const uint32_t ninc = d->ninc;
+		float hold = d->nhold, s1 = d->ns1, s2 = d->ns2;
+		const float a1 = d->na1, a2 = d->na2, a3 = d->na3, k = d->nk, nm = d->lnmix, tm = 1.f - nm;
+		for (int i = 0; i < n; ++i) {
+			ph += dph;
+			ph -= (float)(ph >= 1.f);
+			rng = rng * 1664525u + 1013904223u;
+			uint32_t np = nph + ninc;
+			hold = np < nph ? (float)(int32_t)rng * (0.9f / 2147483648.f) : hold; // wrapped: a new value
+			nph = np;
+			float v3 = hold - s2;
+			float v1 = a1 * s1 + a2 * v3;
+			float v2 = s2 + a2 * s1 + a3 * v3;
+			s1 = 2.f * v1 - s1;
+			s2 = 2.f * v2 - s2;
+			buf[i] = (psin(ph) * tm + (hold - k * v1 - v2) * nm) * gn;
+			gn += dg;
+		}
+		d->ph = ph; d->nph = nph; d->rng = rng; d->nhold = hold; d->ns1 = s1; d->ns2 = s2;
+		return;
+	}
 	for (int i = 0; i < n; ++i) {
 		ph2 += dph2;
 		ph2 -= (float)(ph2 >= 1.f);
@@ -701,7 +761,7 @@ HOT static void pass_lxr(DrumVoice* d, float* buf, int n) {
 		ph += dph;
 		ph -= (float)(ph >= 1.f);
 	}
-	d->ph = ph; d->ph2 = ph2; d->ga = g1;
+	d->ph = ph; d->ph2 = ph2;
 }
 
 // noise or metal -> one-pole high-pass -> 2-pole filter -> amplitude, added to buf

@@ -15,6 +15,7 @@ enum EDrumModels {
 	DM_BASS, // sustained bass note; its tune snaps to the preset's scale
 	DM_ACID, // acid line: saw / square through a resonant ladder filter with slides and accents (notes per step)
 	DM_LXR_DRUM, // LXR-02 drum voice (port of its algorithm, GPL-3.0): sine with FM following the pitch EG, slope amp EG, snap
+	DM_LXR_SNARE, // LXR-02 snare voice: tone plus sample-and-hold noise through its own filter, one amp EG
 	DM_LAST
 };
 // order in which the Shape pad / encoder steps through the models
