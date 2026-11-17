@@ -31,7 +31,7 @@ extern volatile unsigned char groove_grid;
 
 // firmware name of Groove builds (config.h keeps Plinky's own, "v0.B4", for GROOVE=0)
 #undef VERSION2
-#define VERSION2 "v.s-n.0.8"
+#define VERSION2 "v.s-n.0.9"
 
 // Use for one-line hooks in existing code: GROOVE_HOOK(groove_foo());
 #define GROOVE_HOOK(stmt) do { stmt; } while (0)
@@ -112,6 +112,7 @@ void groove_lock_clear(void);               // encoder click in step lock mode
 void groove_clear_lane(void);               // Clear held in the drum grid: selected lane's steps + default sound
 int  GrooveScaleQuantize(int semitones);    // params.h: nearest note of Plinky's scale
 int  GrooveScaleDegree(int degree);         // params.h: semitones of the degree (0 = root, 7 = usually the octave)
+int  GrooveTranspose5(void);                // params.h: Plinky's Pitch (transpose) in 1/5 semitones
 // value of a field of the selected lane, in param units (FULL = 1024)
 int  groove_get_field(int field);
 void groove_set_field(int field, int value);

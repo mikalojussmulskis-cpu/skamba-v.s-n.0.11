@@ -492,7 +492,7 @@ static void compute_eff(int l) {
 		int st = (e->tune + (e->tune >= 0 ? 2 : -2)) / 5;
 		if (e->model == DM_ACID && lane_step[l] != NO_STEP && !tune_locked) // the step's note (a Tune lock replaces it)
 			st += GrooveScaleDegree(pat.step[l][lane_step[l]] & STEP_NOTE_MASK);
-		e->tune = clampi(GrooveScaleQuantize(st) * 5, -120, 120);
+		e->tune = clampi(GrooveScaleQuantize(st) * 5 + GrooveTranspose5(), -120, 120); // + Plinky's transpose: same key
 	}
 }
 

@@ -194,6 +194,18 @@ static void svf_coefs(float fc, float q, float* a1, float* a2, float* a3, float*
 	*a3 = g * *a2;
 }
 
+// Bass / Acid notes: exact equal temperament from C2 (Plinky's scales are built on C), tune in
+// 1/5 semitones (whole semitones once snapped to the scale; a remainder uses the fast fexp2)
+#define NOTE_C2 65.4064f
+static float note_hz(int tune) {
+	static const float semi[12] = { 1.f, 1.0594631f, 1.1224620f, 1.1892071f, 1.2599210f, 1.3348399f,
+		1.4142136f, 1.4983071f, 1.5874011f, 1.6817928f, 1.7817974f, 1.8877486f };
+	int st = (tune + 600) / 5 - 120, r = tune - st * 5; // floor division
+	int oct = (st + 120) / 12 - 10, i = st - oct * 12;
+	float hz = NOTE_C2 * semi[i] * (oct >= 0 ? (float)(1 << oct) : 1.f / (float)(1 << -oct));
+	return r ? hz * fexp2(r * (1.f / 60.f)) : hz;
+}
+
 // set up the excitation filter: mode EF_LP / EF_BP / EF_HP, cutoff, Q.
 // The output is a mix of the three responses, so the loop has no branches;
 // EF_OFF is a 20 Hz high-pass (just removes DC).
@@ -317,7 +329,7 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		for (int i = 0; i < VOICES; ++i) {
 			DrumVoice* d = &dv[i];
 			if (d->active && d->lane == lane && d->model == DM_ACID && d->hold) {
-				d->dph_t = 55.f * fexp2(p->tune * (1.f / 60.f)) / SR;
+				d->dph_t = note_hz(p->tune) / SR;
 				d->hold = gate;
 				float e0 = acid_env0(p, vel);
 				if (e0 > d->env) d->env = e0; // an accented slide pushes the filter again
@@ -540,7 +552,7 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		break;
 	case DM_BASS: // sustained note: wavefolded sine (colour = harmonics) held for the decay time, punch (sweep), click (snap)
 		d->osc = OSC_FOLD;
-		d->dph = 55.f * t / SR;
+		d->dph = note_hz(p->tune) / SR;
 		d->dph2 = d->dph;
 		d->fold = 0.25f + c * 1.25f;
 		d->penv = s * 2.f;
@@ -557,7 +569,7 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 	case DM_ACID: // 303 style: DPW saw -> square (colour), 4-pole ladder with envelope (decay, depth = Filter Env),
 		// accent (snap), glide between slid steps (sweep = slide time); held for the gate, 12 ms release
 		d->osc = OSC_ACID;
-		d->dph = d->dph_t = 55.f * t / SR;
+		d->dph = d->dph_t = note_hz(p->tune) / SR;
 		d->gk = 1.f / (0.005f * fexp2(s * 6.3f) * SR); // slide 5 .. 400 ms
 		d->y3 = d->y4 = d->sq2 = 0.f;                  // (exc_filter above wrote these bytes as the noise filter)
 		d->sq1 = 1.f;                                  // ramp starts at -1 (squared: 1), the shifted one at 0

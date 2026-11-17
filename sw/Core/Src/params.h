@@ -1298,6 +1298,10 @@ int GrooveScaleQuantize(int semis) {
 	}
 	return oct * 12 + best;
 }
+int GrooveTranspose5(void) { // P_PITCH: +-65536 = +-12 semitones (as in DoAudio's pitchbase); 5 units per semitone
+	int v = param_eval_int(P_PITCH, any_rnd, env16, pressure16);
+	return (v * 60 + (v >= 0 ? 32768 : -32768)) / 65536;
+}
 int GrooveScaleDegree(int degree) {
 	int scale = param_eval_int(P_SCALE, any_rnd, env16, pressure16);
 	if (scale < 0 || scale >= S_LAST) scale = 0;

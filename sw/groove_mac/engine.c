@@ -81,6 +81,7 @@ int GrooveScaleQuantize(int st) {
 	return o * 12 + b;
 }
 int GrooveScaleDegree(int d) { return major[d & 7]; }
+int GrooveTranspose5(void) { return 0; }
 
 // --- the firmware sources ---------------------------------------------------
 #define millis() eng_millis()
