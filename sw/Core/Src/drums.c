@@ -85,14 +85,20 @@ typedef struct DrumVoice {
 			float g;                       // ladder coefficient at the end of the last block
 		};
 		struct { // LXR models (lxr_* below) have no excitation either: their envelope shapes and amounts
-			float ka, kpe;                 // slope of the amp EG and of the pitch EG (the LXR's (1+k)v/(1+k|v|) curve)
+			// (no bigger than the excitation struct: the LXR models cost no RAM; envelope slopes are constants)
 			float pamt, snamt, fmamt;      // pitch EG amount, snap amount, FM amount (the LXR's fmModAmount)
-			float sn, ksn;                 // snap EG value (1 -> 0) and its step per sub-block
+			float sn;                      // snap EG value (1 -> 0)
 			float ga, vg;                  // amp EG gain at the end of the last sub-block, velocity gain
-			uint32_t nph, ninc;            // noise oscillator: a new random value each time its phase wraps
-			float nhold, lnmix;            // ... its current value, and the noise / tone mix
 			float ns1, ns2, na1, na2, na3, nk; // the voice's own 2-pole high-pass (snare: on the noise; hat / cymbal: on all)
-			float ph3, dph3, fm2;          // hat / cymbal: second modulator (phase, increment, amount)
+			union {
+				struct {                   // snare: noise oscillator, a new random value each time its phase wraps
+					uint32_t nph, ninc;
+					float nhold, lnmix;        // ... its current value, and the noise / tone mix
+				};
+				struct {                   // hat / cymbal: second modulator (phase, increment, amount)
+					float ph3, dph3, fm2;
+				};
+			};
 		};
 	};
 	// resonant filter state
@@ -171,11 +177,12 @@ static float lxr_step(float x, float K) {
 	float r = 2.f * (1.f - lxr_curve(x, K));
 	return (r > 1.f ? 1.f : r) * LXR_BLK;
 }
-// slope setting (the LXR's 0..127, 64 = linear) -> k of lxr_curve
-static float lxr_slope(float v, float scale) {
-	float a = (v * (1.f / 127.f) - 0.5f) * scale;
-	return 2.f * a / (1.f - a);
-}
+// slope setting (the LXR's 0..127, 64 = linear) -> k of lxr_curve (constant expression)
+#define LXR_SLOPE(v, scale) (2.f * (((v) / 127.f - 0.5f) * (scale)) / (1.f - (((v) / 127.f - 0.5f) * (scale))))
+#define LXR_KA LXR_SLOPE(40.f, 1.999f)     // amp EG slope (hat: LXR_KA_HAT)
+#define LXR_KA_HAT LXR_SLOPE(30.f, 1.999f)
+#define LXR_KPE LXR_SLOPE(20.f, 2.f)       // pitch EG slope
+#define LXR_KSN (0.2f * LXR_BLK)           // snap EG step per sub-block (snap time 1, about 7 ms)
 
 // 2-pole state-variable filter coefficients (the same filter as exc_filter / the lane filter)
 static void svf_coefs(float fc, float q, float* a1, float* a2, float* a3, float* k) {
@@ -540,14 +547,11 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		d->at = d->ga = 1.f;              // attack 0: full level at once
 		d->vg = g;
 		d->kt = lxr_step(dec * (100.f / 255.f / 127.f), 1998.f); // LXR decay 0..100: 1.5 ms .. 5.7 s
-		d->ka = lxr_slope(40.f, 1.999f);
 		d->penv = 1.f;
 		d->kp = lxr_step((10.f + s * 30.f) * (1.f / 127.f), 198.f); // 15 .. 65 ms
-		d->kpe = lxr_slope(20.f, 2.f);
 		d->pamt = s * s * 32.f;           // the LXR's mod amount curve: up to x33 (5 octaves)
 		d->sn = 1.f;
 		d->snamt = n;
-		d->ksn = 0.2f * LXR_BLK;          // snap time 1 (about 7 ms)
 		d->fmamt = c;
 		break;
 	case DM_LXR_SNARE: // LXR-02 snare: sine (pitch EG = sweep, snap) mixed with sample-and-hold noise
@@ -559,14 +563,11 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		d->at = d->ga = 1.f;
 		d->vg = g;
 		d->kt = lxr_step(dec * (100.f / 255.f / 127.f), 1998.f);
-		d->ka = lxr_slope(40.f, 1.999f);
 		d->penv = 1.f;
 		d->kp = lxr_step((10.f + s * 30.f) * (1.f / 127.f), 198.f);
-		d->kpe = lxr_slope(20.f, 2.f);
 		d->pamt = s * s * 32.f;
 		d->sn = 1.f;
 		d->snamt = n;
-		d->ksn = 0.2f * LXR_BLK;
 		d->lnmix = c;
 		{ float nf = 16000.f * t; d->ninc = nf >= SR ? 0xffffffffu : (uint32_t)(nf * (PH32 / SR)); }
 		d->nhold = 0.f;
@@ -590,10 +591,8 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 			d->at = d->ga = 1.f;
 			d->vg = g;
 			d->kt = lxr_step(dec * (100.f / 255.f / 127.f), 1998.f);
-			d->ka = lxr_slope(hat ? 30.f : 40.f, 1.999f);
 			d->sn = 1.f;
 			d->snamt = n * 0.25f; // a high carrier: the LXR's full x24 spike would only alias
-			d->ksn = 0.2f * LXR_BLK;
 			d->fmamt = c * 1.2f;
 			d->fm2 = c * 0.8f;
 			d->ns1 = d->ns2 = 0.f;
@@ -743,13 +742,13 @@ HOT static void pass_acid(DrumVoice* d, float* buf, int n, float g1, float kres,
 HOT static void pass_lxr(DrumVoice* d, float* buf, int n) {
 	float a = d->at - d->kt;
 	d->at = a = a < 0.f ? 0.f : a;
-	const float g1 = lxr_curve(a, d->ka);
+	const float g1 = lxr_curve(a, d->model == DM_LXR_HAT ? LXR_KA_HAT : LXR_KA);
 	float pe = d->penv - d->kp;
 	d->penv = pe = pe < 0.f ? 0.f : pe;
-	const float pes = lxr_curve(pe, d->kpe);
+	const float pes = lxr_curve(pe, LXR_KPE);
 	float sn = d->sn;
 	const float snv = sn * sn * 24.f * d->snamt;
-	sn -= d->ksn;
+	sn -= LXR_KSN;
 	d->sn = sn < 0.f ? 0.f : sn;
 	float dph = d->dph * (1.f + pes * d->pamt + snv);
 	dph = dph > 0.45f ? 0.45f : dph;
