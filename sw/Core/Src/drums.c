@@ -13,7 +13,9 @@
 // (tone, excitation, filter, drive, mix): the Cortex-M4 has no branch
 // predictor, so per-sample flag tests would cost more than the DSP itself.
 // No libm calls, no division per sample, no allocation; trigger and render
-// run in the audio ISR. Original code (MIT, like the rest of Plinky).
+// run in the audio ISR. Original code (MIT, like the rest of Plinky), except the LXR models
+// (DM_LXR_*): ports of the LXR-02 voice algorithms by Erica Synths, GPL-3.0-only (sw/lxr_license/NOTICE.md),
+// which makes a firmware built with them GPL-3.0 as a whole.
 
 #include "drums.h"
 #include <string.h>
@@ -33,7 +35,7 @@
 // follows the default kit (kick, snare, clap, hats, rim, bass, acid), then the colour models
 const uint8_t drum_model_order[DM_LAST] = {
 	DM_KICK, DM_KICK2, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_CYMBAL, DM_RIM, DM_PERC, DM_TOM,
-	DM_BASS, DM_ACID, DM_FM, DM_CLANG, DM_ZAP, DM_CHIRP, DM_FOLD, DM_GLITCH, DM_CRUSH, DM_SAMPLE,
+	DM_BASS, DM_ACID, DM_FM, DM_CLANG, DM_ZAP, DM_CHIRP, DM_FOLD, DM_GLITCH, DM_CRUSH, DM_LXR_DRUM, DM_SAMPLE,
 };
 
 const char* const drum_model_names[DM_LAST] = {
@@ -41,10 +43,10 @@ const char* const drum_model_names[DM_LAST] = {
 	[DM_CHAT] = "C.Hat", [DM_OHAT] = "O.Hat", [DM_CYMBAL] = "Cymbal", [DM_TOM] = "Tom",
 	[DM_RIM] = "Rim", [DM_PERC] = "Cowbell", [DM_FM] = "FM", [DM_ZAP] = "Zap", [DM_SAMPLE] = "Sample",
 	[DM_GLITCH] = "Glitch", [DM_FOLD] = "Fold", [DM_CLANG] = "Clang", [DM_CHIRP] = "Chirp", [DM_CRUSH] = "Crush",
-	[DM_BASS] = "Bass", [DM_ACID] = "Acid",
+	[DM_BASS] = "Bass", [DM_ACID] = "Acid", [DM_LXR_DRUM] = "LXR Drum",
 };
 
-enum { OSC_NONE, OSC_SINE, OSC_SINE2, OSC_FM, OSC_FOLD, OSC_ACID };
+enum { OSC_NONE, OSC_SINE, OSC_SINE2, OSC_FM, OSC_FOLD, OSC_ACID, OSC_LXR };
 enum { EF_OFF, EF_LP, EF_BP, EF_HP }; // excitation filter modes
 enum { EXC_NOISE, EXC_METAL };
 
@@ -80,6 +82,12 @@ typedef struct DrumVoice {
 			float dph_t, gk;               // glide: target phase increment, per-sample coefficient
 			float env, kenv;               // filter envelope (1 -> 0; above 1 on accents) and its per-block decay
 			float g;                       // ladder coefficient at the end of the last block
+		};
+		struct { // LXR models (lxr_* below) have no excitation either: their envelope shapes and amounts
+			float ka, kpe;                 // slope of the amp EG and of the pitch EG (the LXR's (1+k)v/(1+k|v|) curve)
+			float pamt, snamt, fmamt;      // pitch EG amount, snap amount, FM amount (the LXR's fmModAmount)
+			float sn, ksn;                 // snap EG value (1 -> 0) and its step per sub-block
+			float ga, vg;                  // amp EG gain at the end of the last sub-block, velocity gain
 		};
 	};
 	// resonant filter state
@@ -146,6 +154,22 @@ static inline float psin(float ph) { // sin(2 pi ph) for ph in 0..1 (sign flippe
 }
 static inline int16_t sat16(int32_t x) {
 	return (int16_t)(x > 32767 ? 32767 : x < -32768 ? -32768 : x);
+}
+
+// LXR-02 envelope maths (port of SlopeEg2.c / Decay.c / snapEg.c, GPL-3.0-only). The LXR steps its
+// envelopes once per block of 64 samples at 44.14 kHz; here they step once per sub-block (SUB samples)
+// with the step scaled to the same time in seconds.
+#define LXR_BLK ((44140.f / 64.f) / (SR / SUB))
+static float lxr_curve(float v, float k) { return (1.f + k) * v / (1.f + k * fabs_(v)); }
+// step per sub-block for a time setting x = 0..1 (the LXR's value / 127); K = 1998 amp EG, 198 pitch EG
+static float lxr_step(float x, float K) {
+	float r = 2.f * (1.f - lxr_curve(x, K));
+	return (r > 1.f ? 1.f : r) * LXR_BLK;
+}
+// slope setting (the LXR's 0..127, 64 = linear) -> k of lxr_curve
+static float lxr_slope(float v, float scale) {
+	float a = (v * (1.f / 127.f) - 0.5f) * scale;
+	return 2.f * a / (1.f - a);
 }
 
 // set up the excitation filter: mode EF_LP / EF_BP / EF_HP, cutoff, Q.
@@ -492,6 +516,25 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		d->g = 1.f - fexp2(-9.0647f * acid_cutoff(p->filter) / SR);
 		d->drv0 = 0.2f;
 		break;
+	case DM_LXR_DRUM: // LXR-02 drum voice: sine, FM by a second sine whose depth follows the pitch EG,
+		// pitch EG (sweep = amount; deeper also lasts longer), slope amp EG (decay), snap pitch spike (snap),
+		// FM amount (colour), the LXR's distortion curve (drive, in drums_render)
+		d->osc = OSC_LXR;
+		d->dph = d->dph2 = 55.f * t / SR; // mod oscillator at the same note, not swept (as on the LXR)
+		d->ph = d->ph2 = 0.25f;           // the LXR starts its sines at the peak
+		d->at = d->ga = 1.f;              // attack 0: full level at once
+		d->vg = g;
+		d->kt = lxr_step(dec * (100.f / 255.f / 127.f), 1998.f); // LXR decay 0..100: 1.5 ms .. 5.7 s
+		d->ka = lxr_slope(40.f, 1.999f);
+		d->penv = 1.f;
+		d->kp = lxr_step((10.f + s * 30.f) * (1.f / 127.f), 198.f); // 15 .. 65 ms
+		d->kpe = lxr_slope(20.f, 2.f);
+		d->pamt = s * s * 32.f;           // the LXR's mod amount curve: up to x33 (5 octaves)
+		d->sn = 1.f;
+		d->snamt = n;
+		d->ksn = 0.2f * LXR_BLK;          // snap time 1 (about 7 ms)
+		d->fmamt = c;
+		break;
 	case DM_ZAP: // huge fast pitch sweep (colour = sweep time)
 		d->osc = OSC_SINE;
 		d->dph = 55.f * t / SR;
@@ -514,6 +557,8 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		for (int i = 0; i < 7; ++i)
 			kb *= kb;
 	}
+	if (d->osc == OSC_LXR) // linear amp EG: the filter envelope runs out in half its time
+		kb = clampf_(1.f - 4.f * d->kt, 0.f, 1.f);
 	d->fenv = 1.f;
 	d->fenv_k = kb;
 	d->active = 1;
@@ -627,6 +672,36 @@ HOT static void pass_acid(DrumVoice* d, float* buf, int n, float g1, float kres,
 	}
 	d->ph = ph; d->dph = dph; d->at = at; d->sq1 = sq1; d->sq2 = sq2;
 	d->y1 = y1; d->y2 = y2; d->y3 = y3; d->y4 = y4; d->g = g1;
+}
+
+// LXR models: envelopes once per sub-block (as the LXR per block), amp gain interpolated across it
+HOT static void pass_lxr(DrumVoice* d, float* buf, int n) {
+	float a = d->at - d->kt;
+	d->at = a = a < 0.f ? 0.f : a;
+	const float g1 = lxr_curve(a, d->ka);
+	float pe = d->penv - d->kp;
+	d->penv = pe = pe < 0.f ? 0.f : pe;
+	const float pes = lxr_curve(pe, d->kpe);
+	float sn = d->sn;
+	const float snv = sn * sn * 24.f * d->snamt;
+	sn -= d->ksn;
+	d->sn = sn < 0.f ? 0.f : sn;
+	float dph = d->dph * (1.f + pes * d->pamt + snv);
+	dph = dph > 0.45f ? 0.45f : dph;
+	const float dph2 = d->dph2, idx = d->fmamt * d->fmamt * pes, vg = d->vg;
+	float ph = d->ph, ph2 = d->ph2, gn = d->ga * vg;
+	const float dg = (g1 * vg - gn) / (float)n;
+	for (int i = 0; i < n; ++i) {
+		ph2 += dph2;
+		ph2 -= (float)(ph2 >= 1.f);
+		float q = ph + idx * psin(ph2) + 2.f;
+		q -= (float)(int)q;
+		buf[i] = psin(q) * gn;
+		gn += dg;
+		ph += dph;
+		ph -= (float)(ph >= 1.f);
+	}
+	d->ph = ph; d->ph2 = ph2; d->ga = g1;
 }
 
 // noise or metal -> one-pole high-pass -> 2-pole filter -> amplitude, added to buf
@@ -878,7 +953,8 @@ HOT void drums_render(int master, int djfilter, int comp, int drive, int srr) {
 			a3 = gc * a2;
 		}
 		const float cl = (fmode == 1) ? 1.f : 0.f, ch = 1.f - cl;
-		const float drv = d->drv0 + p->drive * (4.f / 255.f), dg = 1.f + drv;
+		const float drv = d->osc == OSC_LXR ? 0.f : d->drv0 + p->drive * (4.f / 255.f), dg = 1.f + drv;
+		const float lxd_s = p->drive * (0.99f / 255.f) - 0.0078125f, lxd = 2.f * lxd_s / (1.f - lxd_s); // LXR distortion
 		float srr_rate = p->srr ? fexp2(p->srr * (-6.f / 255.f)) : 1.f;
 		if (d->srr0 < srr_rate) srr_rate = d->srr0;
 		const float gd = p->level * mg * BUS_SCALE;
@@ -891,6 +967,7 @@ HOT void drums_render(int master, int djfilter, int comp, int drive, int srr) {
 				else if (d->osc == OSC_SINE2) pass_sine2(d, buf, SUB);
 				else if (d->osc == OSC_FOLD) pass_fold(d, buf, SUB);
 				else if (d->osc == OSC_ACID) pass_acid(d, buf, SUB, acid_g, acid_k, acid_w);
+				else if (d->osc == OSC_LXR) pass_lxr(d, buf, SUB);
 				else pass_fm(d, buf, SUB);
 			}
 			else
@@ -919,6 +996,10 @@ HOT void drums_render(int master, int djfilter, int comp, int drive, int srr) {
 					x = x > 1.5f ? 1.5f : x < -1.5f ? -1.5f : x;
 					buf[i] = x - 0.148148f * x * x * x;
 				}
+			// 4b) the LXR's distortion: (1+k)x / (1+k|x|)
+			if (d->osc == OSC_LXR && p->drive)
+				for (int i = 0; i < SUB; ++i)
+					buf[i] = (1.f + lxd) * buf[i] / (1.f + lxd * fabs_(buf[i]));
 			// 5a) bit crush (built into some models)
 			if (d->crush > 0.f) {
 				const float lv = d->crush, inv = 1.f / d->crush;

@@ -110,6 +110,7 @@ static const DrumParams model_default[DM_LAST] = {
 	[DM_CRUSH]  = { DM_CRUSH,    0,  80, 110, 100, 170,   0, 180,   0,   0,  FO,    0,  0,  FO },
 	[DM_BASS]   = { DM_BASS,     0,  30, 115,   0,  13,   0, 128,   0,   0,  51,   77,  0, 166 },
 	[DM_ACID]   = { DM_ACID,     0,  60,  77, 150,   0,  20, 128,   0,  10,  64,  190,  0, 208 },
+	[DM_LXR_DRUM] = { DM_LXR_DRUM, 0, 110, 80,  90,  30,   0, 220,   0,   0,  FO,    0,  0,  FO },
 };
 #undef FO
 static const u8 kit_models[GROOVE_LANES] = { DM_KICK, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_RIM, DM_BASS, DM_ACID };
