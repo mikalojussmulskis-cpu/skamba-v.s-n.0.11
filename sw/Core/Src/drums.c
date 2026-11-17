@@ -226,6 +226,39 @@ static int is_kick(int model) {
 	return model == DM_KICK || model == DM_KICK2;
 }
 
+#define SHED_K 0.98413f   // kdecay(0.002): a shed voice fades by 1/e every 2 ms
+#define SHED_LXR 0.25f    // LXR models: linear amp EG step per sub-block (gone in 4 ms)
+void drums_shed(void) {
+	int best = -1, n = 0;
+	float best_amp = 1e9f;
+	for (int v = 0; v < VOICES; ++v) {
+		DrumVoice* d = &dv[v];
+		const int lxr = d->osc == OSC_LXR;
+		if (!d->active || d->kt == (lxr ? SHED_LXR : SHED_K)) // silent or already fading
+			continue;
+		++n;
+		const int m = d->model;
+		if (is_kick(m) || m == DM_LXR_DRUM || m == DM_BASS || m == DM_ACID) // the low end and notes stay
+			continue;
+		float amp = ((lxr ? d->ga * d->vg : d->at) + d->an) * d->p->level;
+		if (amp < best_amp) {
+			best_amp = amp;
+			best = v;
+		}
+	}
+	if (n < 2 || best < 0)
+		return;
+	DrumVoice* d = &dv[best];
+	d->hold = 0;      // held notes (Bass, Acid) stop holding
+	d->clap_left = 0;
+	if (d->osc == OSC_LXR)
+		d->kt = SHED_LXR;
+	else {
+		d->kt = d->kn = SHED_K;
+		if (d->a0 > d->at) d->a0 = d->at; // Bass / Acid attack: stop growing
+	}
+}
+
 // a lane retriggers its own voice; otherwise use a free voice, otherwise
 // steal the quietest voice that isn't a kick
 static int alloc_voice(int lane) {

@@ -334,6 +334,11 @@ static int can_load(void) {
 }
 
 void groove_init(void) {
+#ifndef EMU
+	// overload guard: the cycle counter that times the audio interrupt (_tc_all) only runs with trace enabled
+	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+#endif
 	groove_active = 0; // always boot into normal Plinky
 	groove_grid = 0;
 	load_slot(0);
@@ -1490,7 +1495,44 @@ unsigned long groove_mix(unsigned long lr, int drum) {
 	return (unsigned long)(u16)soft_sum(l) | ((unsigned long)(u16)soft_sum(r) << 16);
 }
 
+// Overload guard: when the audio interrupt took too long (one block over 95 % of the time between
+// interrupts: close to a glitch) or runs too busy on average (over 92 %: the main loop, which draws
+// the screen, starves; a busy beat with synth runs at 82-89 %), the quietest drum voice that isn't
+// the low end or a note fades out (drums_shed), at most one every 4 blocks (8 ms).
+// Uses plinky.c's interrupt timers (_tc_all inside, _tc_budget between interrupts) of the last block.
+#ifndef EMU
+extern TickCounter _tc_budget, _tc_all;
+#define GUARD_PEAK 0.95f
+#define GUARD_AVG 0.92f
+static void overload_guard(void) {
+	static u32 last_all, last_budget;
+	static int last_n;
+	static float load_avg;
+	static u8 wait;
+	const int n = _tc_all.n;
+	const u32 all = (u32)_tc_all.total, budget = (u32)_tc_budget.total;
+	const u32 d_all = all - last_all, d_budget = budget - last_budget;
+	const int ok = n == last_n + 1 && d_budget > 0 && d_all <= d_budget * 2; // one block since the last call (the stats build resets the timers)
+	last_n = n; last_all = all; last_budget = budget;
+	if (!ok)
+		return;
+	const float load = (float)d_all / (float)d_budget;
+	load_avg += (load - load_avg) * (1.f / 16.f);
+	if (wait) {
+		--wait;
+		return;
+	}
+	if (load > GUARD_PEAK || load_avg > GUARD_AVG) {
+		drums_shed();
+		wait = 4;
+	}
+}
+#endif
+
 void groove_audio(void) {
+#ifndef EMU
+	overload_guard();
+#endif
 	// hits modulated by knobs / CV / LFOs follow them while they ring
 	for (int l = 0; l < GROOVE_LANES; ++l)
 		if (eff_live & (1 << l))
@@ -1793,8 +1835,7 @@ void groove_draw_oled(int mode) {
 #define PAINT_MARGIN 256   // don't paint right under our own frame
 
 extern u32 _end;              // linker: end of .bss (heap starts here)
-extern TickCounter _tc_budget; // cycles between successive audio interrupts
-extern TickCounter _tc_all;    // cycles spent inside the audio interrupt
+// _tc_budget (cycles between successive audio interrupts), _tc_all (cycles inside it): see overload_guard
 
 static u32* paint_start;
 static u32* paint_end;

@@ -63,3 +63,6 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato);
 // srr: global sample rate reduction 0 (off) .. 255 = 1/64 of the rate (audio ISR)
 void drums_render(int master, int djfilter, int comp, int drive, int srr);
 void drums_stop_all(void);
+// overload guard (audio ISR): fades out the quietest drum voice in ~15 ms. Never a kick, LXR Drum,
+// Bass or Acid, never the only voice sounding, never one that is already fading.
+void drums_shed(void);
