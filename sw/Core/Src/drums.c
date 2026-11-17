@@ -1028,7 +1028,7 @@ static void bus_shelf(void) {
 	shelf_lp = lp;
 }
 
-HOT void drums_render(int master, int djfilter, int comp, int drive, int srr) {
+HOT void drums_render(int master, int djfilter, int comp, int drive, int srr, int dlsend, int rvsend) {
 	memset(drum_bus_dry, 0, sizeof(drum_bus_dry));
 	memset(drum_bus_dl, 0, sizeof(drum_bus_dl));
 	memset(drum_bus_rv, 0, sizeof(drum_bus_rv));
@@ -1212,6 +1212,14 @@ HOT void drums_render(int master, int djfilter, int comp, int drive, int srr) {
 
 	if (drive)
 		bus_drive(drive);
+	if (dlsend || rvsend) { // whole drum mix -> delay / reverb (half rate), at the lanes' send scale
+		const float gl = dlsend * (0.5f / 255.f), gr = rvsend * (0.5f / 255.f);
+		for (int i = 0; i < DRUM_BLOCK / 2; ++i) {
+			float x = (float)drum_bus_dry[i * 2] + (float)drum_bus_dry[i * 2 + 1];
+			drum_bus_dl[i] = sat16(drum_bus_dl[i] + (int32_t)(x * gl));
+			drum_bus_rv[i] = sat16(drum_bus_rv[i] + (int32_t)(x * gr));
+		}
+	}
 	bus_shelf();
 
 	{ // 2-pole Butterworth high-pass at 25 Hz: removes DC and sub rumble, a 50 Hz kick loses 0.3 dB

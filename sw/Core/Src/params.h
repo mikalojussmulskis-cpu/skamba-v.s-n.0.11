@@ -853,6 +853,8 @@ static int groove_field_for_param(int p) {
 	if (p == P_ACCEL_SENS) return GF_BUSDRIVE; // ... and drum overdrive (Params 2)
 	if (p == P_MIDI_CH_OUT) return GF_BUSSRR;  // mixer row, Params 2, between drum volume and drive: drum sample rate ...
 	if (p == P_MIDI_CH_IN) return GF_BUSSRR;   // ... and Params 1, between the DJ filter (HPF) and the compressor
+	if (p == P_MIXINPUT) return GF_BUSDLSEND;  // mixer row, Params 2, 1st pad (Input Lvl): delay send of all drums ...
+	if (p == P_MIXINWETDRY) return GF_BUSRVSEND; // ... 2nd pad (In Wet/Dry): reverb send of all drums
 	switch (p) {
 	case P_DLSEND: return GF_DLSEND;
 	case P_RVSEND: return GF_RVSEND;
@@ -908,7 +910,7 @@ _Static_assert(M_ENV == 1 && M_PRESSURE == 2 && M_A == 3 && M_Y == 6 && M_RND ==
 // signed ranges (CV quantise, MIDI channels, accel sensitivity); they are plain 0..100 % there
 static int groove_param_plain(int p) {
 	int f = GROOVE_GRID ? groove_field_for_param(p) : -1;
-	return f == GF_COMP || f == GF_BUSDRIVE || f == GF_BUSSRR || f == GF_VOLUME;
+	return f == GF_COMP || f == GF_BUSDRIVE || f == GF_BUSSRR || f == GF_VOLUME || f == GF_BUSDLSEND || f == GF_BUSRVSEND;
 }
 #endif
 

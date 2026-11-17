@@ -31,7 +31,7 @@ extern volatile unsigned char groove_grid;
 
 // firmware name of Groove builds (config.h keeps Plinky's own, "v0.B4", for GROOVE=0)
 #undef VERSION2
-#define VERSION2 "v.s-n.0.7"
+#define VERSION2 "v.s-n.0.8"
 
 // Use for one-line hooks in existing code: GROOVE_HOOK(groove_foo());
 #define GROOVE_HOOK(stmt) do { stmt; } while (0)
@@ -101,7 +101,8 @@ enum EGrooveFields { GF_MODEL, GF_TUNE, GF_SWEEP, GF_DECAY, GF_SNAP, GF_COLOR, G
 	// the effect runs while the pad is held under Shift; encoder / slider = its setting
 	GF_ROLL, GF_RATCHET, GF_REVERSE, GF_PITCHFALL, GF_GATE, GF_CRUSH,
 	GF_BUSDRIVE,          // global drum overdrive (whole groove pattern)
-	GF_BUSSRR };          // global drum sample rate reduction (whole groove pattern)
+	GF_BUSSRR,            // global drum sample rate reduction (whole groove pattern)
+	GF_BUSDLSEND, GF_BUSRVSEND }; // delay / reverb send of the whole drum mix (whole groove pattern)
 // encoder click puts these back to the middle (off)
 #define GROOVE_FIELD_IS_FILTER(f) ((f) == GF_FILTER || (f) == GF_DJFILTER || (f) == GF_FENV)
 // fields of one lane (the OLED shows the lane / locked step), as opposed to the whole drum bus
