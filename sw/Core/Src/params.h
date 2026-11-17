@@ -1167,7 +1167,11 @@ static Preset const init_params = {
 				//[P_RVUNUSED]={0},
 
 
+#if GROOVE_ENABLE // GROOVE HOOK: synth level 22 % by default, so the drums sit on top
+				[P_MIXSYNTH] = {226},
+#else
 				[P_MIXSYNTH] = {HALF},
+#endif
 				[P_MIX_WIDTH] = {(HALF * 7)/8},
 				[P_MIXINWETDRY] = {0},
 #ifdef EMU
