@@ -112,6 +112,8 @@ static const DrumParams model_default[DM_LAST] = {
 	[DM_ACID]   = { DM_ACID,     0,  60,  77, 150,   0,  20, 128,   0,  10,  64,  190,  0, 208 },
 	[DM_LXR_DRUM] = { DM_LXR_DRUM, 0, 110, 80,  90,  30,   0, 220,   0,   0,  FO,    0,  0,  FO },
 	[DM_LXR_SNARE] = { DM_LXR_SNARE, 0, 50, 70,  60, 150,   0, 200,   0,  13,  FO,    0,  0,  FO },
+	[DM_LXR_HAT] = { DM_LXR_HAT,   0, 100, 30,  40, 160,   0, 105,   0,   0,  FO,    0,  0,  FO },
+	[DM_LXR_CYMBAL] = { DM_LXR_CYMBAL, 0, 100, 170, 30, 150, 0, 95,   0,  40,  FO,    0,  0,  FO },
 };
 #undef FO
 static const u8 kit_models[GROOVE_LANES] = { DM_KICK, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_RIM, DM_BASS, DM_ACID };

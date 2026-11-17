@@ -16,6 +16,8 @@ enum EDrumModels {
 	DM_ACID, // acid line: saw / square through a resonant ladder filter with slides and accents (notes per step)
 	DM_LXR_DRUM, // LXR-02 drum voice (port of its algorithm, GPL-3.0): sine with FM following the pitch EG, slope amp EG, snap
 	DM_LXR_SNARE, // LXR-02 snare voice: tone plus sample-and-hold noise through its own filter, one amp EG
+	DM_LXR_HAT,    // LXR-02 hihat voice: square carrier, FM by two oscillators, own high-pass (a hit chokes the last)
+	DM_LXR_CYMBAL, // LXR-02 cymbal voice: the same structure, lower and longer
 	DM_LAST
 };
 // order in which the Shape pad / encoder steps through the models

@@ -35,7 +35,7 @@
 // follows the default kit (kick, snare, clap, hats, rim, bass, acid), then the colour models
 const uint8_t drum_model_order[DM_LAST] = {
 	DM_KICK, DM_KICK2, DM_SNARE, DM_CLAP, DM_CHAT, DM_OHAT, DM_CYMBAL, DM_RIM, DM_PERC, DM_TOM,
-	DM_BASS, DM_ACID, DM_FM, DM_CLANG, DM_ZAP, DM_CHIRP, DM_FOLD, DM_GLITCH, DM_CRUSH, DM_LXR_DRUM, DM_LXR_SNARE, DM_SAMPLE,
+	DM_BASS, DM_ACID, DM_FM, DM_CLANG, DM_ZAP, DM_CHIRP, DM_FOLD, DM_GLITCH, DM_CRUSH, DM_LXR_DRUM, DM_LXR_SNARE, DM_LXR_HAT, DM_LXR_CYMBAL, DM_SAMPLE,
 };
 
 const char* const drum_model_names[DM_LAST] = {
@@ -44,6 +44,7 @@ const char* const drum_model_names[DM_LAST] = {
 	[DM_RIM] = "Rim", [DM_PERC] = "Cowbell", [DM_FM] = "FM", [DM_ZAP] = "Zap", [DM_SAMPLE] = "Sample",
 	[DM_GLITCH] = "Glitch", [DM_FOLD] = "Fold", [DM_CLANG] = "Clang", [DM_CHIRP] = "Chirp", [DM_CRUSH] = "Crush",
 	[DM_BASS] = "Bass", [DM_ACID] = "Acid", [DM_LXR_DRUM] = "LXR Drum", [DM_LXR_SNARE] = "LXR Snare",
+	[DM_LXR_HAT] = "LXR Hat", [DM_LXR_CYMBAL] = "LXR Cymbal",
 };
 
 enum { OSC_NONE, OSC_SINE, OSC_SINE2, OSC_FM, OSC_FOLD, OSC_ACID, OSC_LXR };
@@ -90,7 +91,8 @@ typedef struct DrumVoice {
 			float ga, vg;                  // amp EG gain at the end of the last sub-block, velocity gain
 			uint32_t nph, ninc;            // noise oscillator: a new random value each time its phase wraps
 			float nhold, lnmix;            // ... its current value, and the noise / tone mix
-			float ns1, ns2, na1, na2, na3, nk; // the voice's own 2-pole filter on the noise (high-pass)
+			float ns1, ns2, na1, na2, na3, nk; // the voice's own 2-pole high-pass (snare: on the noise; hat / cymbal: on all)
+			float ph3, dph3, fm2;          // hat / cymbal: second modulator (phase, increment, amount)
 		};
 	};
 	// resonant filter state
@@ -571,6 +573,33 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		d->ns1 = d->ns2 = 0.f;
 		svf_coefs(1000.f * t, 0.7f, &d->na1, &d->na2, &d->na3, &d->nk);
 		break;
+	case DM_LXR_HAT:    // LXR-02 hihat / cymbal: square carrier (tune, snap) phase modulated by two sines at
+	case DM_LXR_CYMBAL: // inharmonic ratios (sweep = ratio spread, colour = FM amount) through the voice's own
+		// high-pass, slope amp EG (decay), the LXR distortion (drive)
+		if (p->model == DM_LXR_HAT) // one hihat voice on the LXR: a new hit chokes the ringing one
+			for (int i = 0; i < VOICES; ++i)
+				if (dv[i].active && dv[i].model == DM_LXR_HAT && dv[i].kt < 0.25f)
+					dv[i].kt = 0.25f;
+		{
+			const int hat = p->model == DM_LXR_HAT;
+			d->osc = OSC_LXR;
+			d->dph = (hat ? 1400.f : 700.f) * t / SR;
+			d->dph2 = d->dph * (hat ? 1.17f + s * 2.6f : 1.33f + s * 2.2f);
+			d->dph3 = d->dph * (hat ? 2.31f + s * 3.9f : 3.17f + s * 2.9f);
+			d->ph = 0.25f;
+			d->at = d->ga = 1.f;
+			d->vg = g;
+			d->kt = lxr_step(dec * (100.f / 255.f / 127.f), 1998.f);
+			d->ka = lxr_slope(hat ? 30.f : 40.f, 1.999f);
+			d->sn = 1.f;
+			d->snamt = n * 0.25f; // a high carrier: the LXR's full x24 spike would only alias
+			d->ksn = 0.2f * LXR_BLK;
+			d->fmamt = c * 1.2f;
+			d->fm2 = c * 0.8f;
+			d->ns1 = d->ns2 = 0.f;
+			svf_coefs((hat ? 6000.f : 3500.f) * t, 0.9f, &d->na1, &d->na2, &d->na3, &d->nk);
+		}
+		break;
 	case DM_ZAP: // huge fast pitch sweep (colour = sweep time)
 		d->osc = OSC_SINE;
 		d->dph = 55.f * t / SR;
@@ -749,6 +778,31 @@ HOT static void pass_lxr(DrumVoice* d, float* buf, int n) {
 			gn += dg;
 		}
 		d->ph = ph; d->nph = nph; d->rng = rng; d->nhold = hold; d->ns1 = s1; d->ns2 = s2;
+		return;
+	}
+	if (d->model == DM_LXR_HAT || d->model == DM_LXR_CYMBAL) { // FM metal: square carrier, two sine modulators
+		float ph3 = d->ph3, s1 = d->ns1, s2 = d->ns2;
+		const float dph3 = d->dph3, i1 = d->fmamt, i2 = d->fm2;
+		const float a1 = d->na1, a2 = d->na2, a3 = d->na3, k = d->nk;
+		for (int i = 0; i < n; ++i) {
+			ph2 += dph2;
+			ph2 -= (float)(ph2 >= 1.f);
+			ph3 += dph3;
+			ph3 -= (float)(ph3 >= 1.f);
+			float q = ph + i1 * psin(ph2) + i2 * psin(ph3) + 4.f;
+			q -= (float)(int)q;
+			float x = (float)(q < 0.5f) - 0.5f; // square, the LXR's carrier gain 0.5
+			float v3 = x - s2;
+			float v1 = a1 * s1 + a2 * v3;
+			float v2 = s2 + a2 * s1 + a3 * v3;
+			s1 = 2.f * v1 - s1;
+			s2 = 2.f * v2 - s2;
+			buf[i] = (x - k * v1 - v2) * gn;
+			gn += dg;
+			ph += dph;
+			ph -= (float)(ph >= 1.f);
+		}
+		d->ph = ph; d->ph2 = ph2; d->ph3 = ph3; d->ns1 = s1; d->ns2 = s2;
 		return;
 	}
 	for (int i = 0; i < n; ++i) {
