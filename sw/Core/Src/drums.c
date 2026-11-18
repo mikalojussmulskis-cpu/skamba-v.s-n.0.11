@@ -351,7 +351,7 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 
 	// velocity 1..7 -> gain: wide range, row 5 of the drum pads is barely audible; the
 	// middle (a normal tap records 4..5) sits a little higher, full velocity stays 1
-	static const float vel_gain[8] = { 0.f, 0.04f, 0.1f, 0.2f, 0.38f, 0.6f, 0.8f, 1.f };
+	static const float vel_gain[8] = { 0.f, 0.012f, 0.035f, 0.1f, 0.38f, 0.6f, 0.8f, 1.f };
 	const float g = vel_gain[vel & 7];
 	const float t = fexp2(p->tune * (1.f / 60.f)); // 5 units per semitone
 	const float s = p->sweep * (1.f / 255.f);
@@ -577,6 +577,7 @@ void drums_note(int lane, const DrumParams* p, int vel, int gate, int legato) {
 		d->at = g * 0.05f;
 		d->kt = 1.1f;                                  // 1 ms attack: grows until it reaches a0, then holds ...
 		d->kt_rel = kdecay(0.012f);                    // ... and releases after the gate
+		d->kn = dec >= 255 ? 1.f : kdecay(erange(dec, 0.06f, 5.5f)); // amp decay while held (Decay; max = no decay)
 		d->hold = (uint16_t)gate;
 		d->env = acid_env0(p, vel);
 		d->kenv = 1.f - 1.f / (erange(dec, 0.03f, 5.5f) * (SR / DRUM_BLOCK)); // 30 ms .. 1.4 s, per block
@@ -1071,6 +1072,8 @@ HOT void drums_render(int master, int djfilter, int comp, int drive, int srr, in
 
 		if (d->hold && --d->hold == 0) // end of the hold: start the release
 			d->kt = d->kt_rel;
+		else if (d->osc == OSC_ACID && d->hold && d->kt > 1.f && d->at >= d->a0) // Acid: attack done, decay while held
+			d->kt = d->kn;
 		// per block: which parts run, and the live filter / drive / level
 		const int use_tone = d->osc != OSC_NONE && d->at > 1e-5f;
 		const int use_exc = d->an > 1e-5f;

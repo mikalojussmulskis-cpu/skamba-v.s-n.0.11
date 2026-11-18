@@ -219,9 +219,10 @@ void eng_step_wheel(int l, int s, int delta) {
 	LOCK();
 	u8* p = &pat.step[l][s & 63];
 	if (*p & STEP_TRIG) {
-		if (pat.lane[l].snd.model == DM_ACID) { // note degree 0..7
-			int n = clampi((*p & STEP_NOTE_MASK) + (delta > 0 ? 1 : -1), 0, 7);
-			*p = (*p & ~STEP_NOTE_MASK) | n;
+		if (pat.lane[l].snd.model == DM_ACID) { // note: degree 0..7 in octave -1 / 0 / +1
+			int n = clampi((acid_oct(*p) + 1) * 8 + (*p & STEP_NOTE_MASK) + (delta > 0 ? 1 : -1), 0, 23);
+			*p = (*p & ~(STEP_NOTE_MASK | (STEP_VEL_MASK << STEP_VEL_SHIFT))) | (n & 7)
+				| (ACID_VEL(n / 8 - 1, acid_acc(*p)) << STEP_VEL_SHIFT);
 		}
 		else {
 			int v = (*p >> STEP_VEL_SHIFT) & STEP_VEL_MASK;
@@ -240,7 +241,7 @@ void eng_toggle_accent(int l, int s) {
 	u8* p = &pat.step[l][s & 63];
 	if (*p & STEP_TRIG) {
 		int v = (*p >> STEP_VEL_SHIFT) & STEP_VEL_MASK;
-		int nv = v == 7 ? (pat.lane[l].snd.model == DM_ACID ? 6 : VEL_DEFAULT) : 7;
+		int nv = pat.lane[l].snd.model == DM_ACID ? ACID_VEL(acid_oct(*p), !acid_acc(*p)) : v == 7 ? VEL_DEFAULT : 7;
 		*p = (*p & ~(STEP_VEL_MASK << STEP_VEL_SHIFT)) | (nv << STEP_VEL_SHIFT);
 		mark_dirty();
 	}

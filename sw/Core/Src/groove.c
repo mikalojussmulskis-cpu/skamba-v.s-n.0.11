@@ -41,7 +41,12 @@
 #define STEP_VEL_SHIFT 4
 #define STEP_VEL_MASK 7
 #define STEP_SLIDE 8      // Acid: glide into the next step's note (no retrigger)
-#define STEP_NOTE_MASK 7  // Acid: scale degree above the lane's tune
+#define STEP_NOTE_MASK 7  // scale degree above the lane's tune (Acid notes; keyboard row recordings on any lane)
+// Acid steps: the velocity bits hold accent and octave, 303 style: 6 / 7 = normal / accent,
+// 4 / 5 = an octave up, 2 / 3 = an octave down (0, 1 = normal)
+#define ACID_VEL(oct, acc) (((oct) > 0 ? 4 : (oct) < 0 ? 2 : 6) + ((acc) ? 1 : 0))
+static int acid_oct(u8 s) { int v = (s >> 4) & 7; return (v == 4 || v == 5) ? 1 : (v == 2 || v == 3) ? -1 : 0; }
+static int acid_acc(u8 s) { int v = (s >> 4) & 7; return v == 7 || v == 5 || v == 3; }
 #define VEL_DEFAULT 5
 #define ACID_SETTLE_MS 400 // the model choice must rest on Acid this long before notes are generated
 
@@ -123,14 +128,15 @@ static const u8 kit_models[GROOVE_LANES] = { DM_KICK, DM_SNARE, DM_CLAP, DM_CHAT
 
 // ---------------------------------------------------------------------------
 // Pad layout in the drum grid
-#define DRUM_ROWS 5 // R1-R5: drum pads, R1 loudest .. R5 quietest
+#define DRUM_ROWS 4 // R1-R4: drum pads, R1 loudest .. R4 quietest
+#define ROW_KEYS 4  // R5: keyboard, the selected lane in Plinky's scale (root .. octave)
 #define ROW_MUTE 5  // R6: mute row
 #define ROW_STEPS 6 // R7, R8: 16 steps of the selected lane
 #define ROW_LOOP 8  // pad_row: Prev / Next held, a step pad of the 64-step view
 #define ROW_FX 9    // pad_row: a momentary FX pad (Shift + Arp / Seq row)
 #define LONGPRESS_MS 400
 #define NO_TOUCH (-2048) // TOUCH_MIN_PRES
-static const u8 row_vel[DRUM_ROWS] = { 7, 5, 4, 2, 1 }; // 100, 50, 30, 8, 3 % (see vel_gain in drums.c)
+static const u8 row_vel[DRUM_ROWS] = { 7, 5, 3, 1 }; // 100, 60, 10, 1.2 % (see vel_gain in drums.c)
 
 // ---------------------------------------------------------------------------
 // From plinky.c (unity build globals)
@@ -179,6 +185,8 @@ static DrumParams lane_eff[GROOVE_LANES];
 static u8 lane_vel[GROOVE_LANES + 1]; // velocity of the hit ([LANE_ALL]: the latest hit of any lane, for all-drums modulation)
 static s8 lane_rnd[GROOVE_LANES + 1]; // random value of the hit (modulation source)
 static float lane_env[GROOVE_LANES + 1]; // "Env" modulation source: 1 at a hit, falling to 0 over one 16th
+static s8 lane_key[GROOVE_LANES];   // scale degree of the lane's last keyboard hit (-1: not a keyboard hit)
+static s8 key_deg = -1;             // set by the keyboard row for the next trigger_lane
 static u8 eff_live;                // lanes whose hit follows knobs / LFOs every block
 static u32 rnd_state = 0x2545F491u;
 
@@ -488,12 +496,21 @@ static void compute_eff(int l) {
 	}
 	if (fx_pitch < 0.f) // pitch fall FX
 		e->tune = clampi(e->tune + (int)(fx_pitch * 5.f), -120, 120);
+	// the note: the keyboard's key, or the step's degree (a Tune lock replaces it); Acid steps add their octave
+	int deg = 0, oct = 0;
+	if (lane_step[l] == NO_STEP)
+		deg = lane_key[l] > 0 ? lane_key[l] : 0;
+	else if (!tune_locked) {
+		u8 s = pat.step[l][lane_step[l]];
+		deg = s & STEP_NOTE_MASK;
+		if (e->model == DM_ACID) oct = acid_oct(s);
+	}
 	if (rnd_tune || e->model == DM_BASS || e->model == DM_ACID) { // random pitch, and bass / acid notes, follow Plinky's scale (tune 0 = root)
-		int st = (e->tune + (e->tune >= 0 ? 2 : -2)) / 5;
-		if (e->model == DM_ACID && lane_step[l] != NO_STEP && !tune_locked) // the step's note (a Tune lock replaces it)
-			st += GrooveScaleDegree(pat.step[l][lane_step[l]] & STEP_NOTE_MASK);
+		int st = (e->tune + (e->tune >= 0 ? 2 : -2)) / 5 + GrooveScaleDegree(deg) + oct * 12;
 		e->tune = clampi(GrooveScaleQuantize(st) * 5 + GrooveTranspose5(), -120, 120); // + Plinky's transpose: same key
 	}
+	else if (deg) // other drums: up the scale from the lane's own pitch
+		e->tune = clampi(e->tune + GrooveScaleDegree(deg) * 5, -120, 120);
 }
 
 // trigger a drum lane; step = sequencer step (NO_STEP for live hits);
@@ -505,12 +522,14 @@ static void trigger_lane(int l, int vel, int step, int gate, int legato) {
 	rnd_state = rnd_state * 1664525u + 1013904223u;
 	lane_rnd[l] = (s8)(rnd_state >> 24);
 	lane_env[l] = 1.f;
+	lane_key[l] = key_deg;
+	key_deg = -1;
 	lane_vel[LANE_ALL] = vel; // all-drums modulation: touch / Env / random of the latest hit of any lane
 	lane_rnd[LANE_ALL] = lane_rnd[l];
 	lane_env[LANE_ALL] = 1.f;
 	int m = pat.lane[l].snd.model;
 	int note = m == DM_BASS || m == DM_ACID; // tune snapped to the scale (and the step's note) by compute_eff
-	if (note || fx_pitch < 0.f || lane_mods(l, 0) || (step != NO_STEP && step_locks(l, step))) {
+	if (note || fx_pitch < 0.f || lane_mods(l, 0) || lane_key[l] > 0 || (step != NO_STEP && (step_locks(l, step) || (pat.step[l][step] & STEP_NOTE_MASK)))) {
 		compute_eff(l);
 		drums_note(l, &lane_eff[l], vel, gate, legato);
 		if (note || lane_mods(l, 1)) eff_live |= bit; else eff_live &= ~bit; // notes: edits still apply while they hold
@@ -524,7 +543,7 @@ static void trigger_lane(int l, int vel, int step, int gate, int legato) {
 // the lane's model was set to Bass or Acid (and the choice settled): a lane that
 // comes from a drum model (or has Filter Env off) gets the model's starting
 // sound; coming from Bass / Acid keeps the sound. Acid also gets a new line: steps get a note (scale degree, mostly the
-// root with steps and octave jumps), accents and slides; old locks of the lane
+// root with steps and octave jumps, over three octaves), accents and slides; old locks of the lane
 // go (a Tune lock would replace the note).
 static void note_model_chosen(int l) {
 	DrumParams* d = &pat.lane[l].snd;
@@ -548,7 +567,10 @@ static void note_model_chosen(int l) {
 		else deg = clampi(deg + ((a & 1) ? 1 : -1) * (1 + ((a >> 1) & 1)), 0, 7); // ... or a degree or two away
 		int b = (r >> 16) & 255;
 		int acc = b < 70, sl = b >= 190; // accents on 27 %, slides on 25 %
-		pat.step[l][i] = trig ? STEP_TRIG | ((acc ? 7 : 6) << STEP_VEL_SHIFT) | (sl ? STEP_SLIDE : 0) | deg : 0;
+		rnd_state = rnd_state * 1664525u + 1013904223u;
+		int o = (rnd_state >> 24) & 255;
+		int oct = o < 46 ? 1 : o < 80 ? -1 : 0; // an octave up on 18 %, down on 13 %: three octaves
+		pat.step[l][i] = trig ? STEP_TRIG | (ACID_VEL(oct, acc) << STEP_VEL_SHIFT) | (sl ? STEP_SLIDE : 0) | deg : 0;
 	}
 	mark_dirty();
 	ShowMessage(F_20_BOLD, "acid line", "new notes");
@@ -597,7 +619,7 @@ void groove_pad(int fi, int row, int trig, int pressure) {
 				lock_lane = lane_sel;
 				u8* s = &pat.step[lane_sel][idx];
 				if (!(*s & STEP_TRIG)) { // a locked step needs a hit
-					*s = STEP_TRIG | (hit_row[fi] << STEP_VEL_SHIFT);
+					*s = STEP_TRIG | ((pat.lane[lane_sel].snd.model == DM_ACID ? 6 : hit_row[fi]) << STEP_VEL_SHIFT);
 					mark_dirty();
 				}
 			}
@@ -711,8 +733,8 @@ void groove_pad_up(int fi) {
 			if (lock_step == idx && lock_lane == lane_sel)
 				lock_step = NO_STEP;
 		}
-		else
-			*s = STEP_TRIG | (hit_row[fi] << STEP_VEL_SHIFT);
+		else // (Acid: the velocity bits are accent / octave, a tap is a plain note)
+			*s = STEP_TRIG | ((pat.lane[lane_sel].snd.model == DM_ACID ? 6 : hit_row[fi]) << STEP_VEL_SHIFT);
 		mark_dirty();
 	}
 	pad_row[fi] = 255;
@@ -789,8 +811,8 @@ static int next_pos(int l) {
 	return (start + rel) & 63;
 }
 
-// Record + Play: write a live hit onto the nearest step
-static void live_record(int l, int vel) {
+// Record + Play: write a live hit onto the nearest step (deg: keyboard note, 0 = root / drum pad)
+static void live_record(int l, int vel, int deg) {
 	if (!recording_now || !drums_play || !running)
 		return;
 	int s = lane_pos[l];
@@ -798,22 +820,33 @@ static void live_record(int l, int vel) {
 		s = next_pos(l);
 		skip_next |= 1 << l; // it just sounded live; don't play it again when the step comes
 	}
-	pat.step[l][s] = STEP_TRIG | (vel << STEP_VEL_SHIFT);
+	pat.step[l][s] = STEP_TRIG | (vel << STEP_VEL_SHIFT) | deg;
 	mark_dirty();
 }
 
 void groove_touch(int fi, int* pressure, int position) {
 	u8 bit = 1 << fi;
-	int synth = pat.lane[fi].snd.model != DM_SAMPLE;
+	int synth = pat.lane[fi].snd.model != DM_SAMPLE || (position >> 8) == ROW_KEYS; // the keyboard never sounds a Plinky voice
 	if (*pressure > HIT_PRESSURE) {
 		if (!(live_down & bit)) {
 			// a new hit counts once it reads the same drum row twice in a row (4 ms):
 			// sensor noise and the first readings of a step / mute press don't fire drums
 			int row = clampi(position >> 8, 0, 7);
-			if (row >= DRUM_ROWS)
+			if (row > ROW_KEYS)
 				hit_count[fi] = 0;
 			else if (hit_count[fi] && hit_row[fi] == row) {
-				if (++hit_count[fi] >= HIT_CONFIRM) {
+				if (++hit_count[fi] >= HIT_CONFIRM && row == ROW_KEYS) { // keyboard: key fi = scale degree fi of the selected lane
+					live_down |= bit;
+					int l = lane_sel, m = pat.lane[l].snd.model;
+					if (m != DM_SAMPLE) {
+						int vel = m == DM_ACID ? 6 : VEL_DEFAULT;
+						flash[l] = 255;
+						key_deg = fi;
+						trigger_lane(l, vel, NO_STEP, 0, 0);
+						live_record(l, vel, fi);
+					}
+				}
+				else if (hit_count[fi] >= HIT_CONFIRM) {
 					live_down |= bit;
 					if (lock_step == NO_STEP) // in step lock mode the lane stays put
 						lane_sel = fi;
@@ -821,7 +854,7 @@ void groove_touch(int fi, int* pressure, int position) {
 					int vel = row_vel[row]; // the row sets the velocity
 					if (synth)
 						trigger_lane(fi, vel, NO_STEP, 0, 0);
-					live_record(fi, vel);
+					live_record(fi, vel, 0);
 				}
 			}
 			else {
@@ -1260,6 +1293,7 @@ static void fire(int l) {
 		gate[l] = gate_len;
 	}
 	else if (m == DM_ACID) { // notes: a slide step holds into the next step, which then glides to its note
+		vel = acid_acc(s) ? 7 : 6; // (the other velocity bits are the octave)
 		int gate_blocks = (s & STEP_SLIDE) ? step_ticks_now * 5 / 4 : step_ticks_now * 11 / 20;
 		trigger_lane(l, vel, lane_pos[l], maxi(gate_blocks, 2), (slide_from & bit) != 0);
 		if (s & STEP_SLIDE) slide_from |= bit; else slide_from &= ~bit;
@@ -1644,6 +1678,9 @@ void groove_draw_leds(int mode) {
 			int k = (fi == lane_sel) ? 56 - y * 8 : 0;
 			led_ram[fi][y] = gamma8(maxi(k, flash[fi]));
 		}
+
+		// keyboard: root and octave a little brighter
+		led_ram[fi][ROW_KEYS] = gamma8(maxi((fi == 0 || fi == 7) ? 70 : 30, (live_down & (1 << fi)) && hit_row[fi] == ROW_KEYS ? 255 : 0));
 
 		int muted = pat.lane[fi].flags & LANE_MUTE;
 		int k = muted ? 0 : 120;

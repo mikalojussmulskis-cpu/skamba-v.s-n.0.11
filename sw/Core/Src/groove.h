@@ -31,7 +31,7 @@ extern volatile unsigned char groove_grid;
 
 // firmware name of Groove builds (config.h keeps Plinky's own, "v0.B4", for GROOVE=0)
 #undef VERSION2
-#define VERSION2 "v.s-n.0.9"
+#define VERSION2 "v.s-n.0.10"
 
 // Use for one-line hooks in existing code: GROOVE_HOOK(groove_foo());
 #define GROOVE_HOOK(stmt) do { stmt; } while (0)
