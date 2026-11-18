@@ -128,15 +128,14 @@ static const u8 kit_models[GROOVE_LANES] = { DM_KICK, DM_SNARE, DM_CLAP, DM_CHAT
 
 // ---------------------------------------------------------------------------
 // Pad layout in the drum grid
-#define DRUM_ROWS 4 // R1-R4: drum pads, R1 loudest .. R4 quietest
-#define ROW_KEYS 4  // R5: keyboard, the selected lane in Plinky's scale (root .. octave)
+#define DRUM_ROWS 5 // R1-R5: drum pads, R1 loudest .. R5 quietest
 #define ROW_MUTE 5  // R6: mute row
 #define ROW_STEPS 6 // R7, R8: 16 steps of the selected lane
 #define ROW_LOOP 8  // pad_row: Prev / Next held, a step pad of the 64-step view
 #define ROW_FX 9    // pad_row: a momentary FX pad (Shift + Arp / Seq row)
 #define LONGPRESS_MS 400
 #define NO_TOUCH (-2048) // TOUCH_MIN_PRES
-static const u8 row_vel[DRUM_ROWS] = { 7, 5, 3, 1 }; // 100, 60, 10, 1.2 % (see vel_gain in drums.c)
+static const u8 row_vel[DRUM_ROWS] = { 7, 5, 4, 2, 1 }; // 100, 60, 38, 3.5, 1.2 % (see vel_gain in drums.c)
 
 // ---------------------------------------------------------------------------
 // From plinky.c (unity build globals)
@@ -185,8 +184,6 @@ static DrumParams lane_eff[GROOVE_LANES];
 static u8 lane_vel[GROOVE_LANES + 1]; // velocity of the hit ([LANE_ALL]: the latest hit of any lane, for all-drums modulation)
 static s8 lane_rnd[GROOVE_LANES + 1]; // random value of the hit (modulation source)
 static float lane_env[GROOVE_LANES + 1]; // "Env" modulation source: 1 at a hit, falling to 0 over one 16th
-static s8 lane_key[GROOVE_LANES];   // scale degree of the lane's last keyboard hit (-1: not a keyboard hit)
-static s8 key_deg = -1;             // set by the keyboard row for the next trigger_lane
 static u8 eff_live;                // lanes whose hit follows knobs / LFOs every block
 static u32 rnd_state = 0x2545F491u;
 
@@ -496,11 +493,9 @@ static void compute_eff(int l) {
 	}
 	if (fx_pitch < 0.f) // pitch fall FX
 		e->tune = clampi(e->tune + (int)(fx_pitch * 5.f), -120, 120);
-	// the note: the keyboard's key, or the step's degree (a Tune lock replaces it); Acid steps add their octave
+	// the note: the step's degree (a Tune lock replaces it); Acid steps add their octave
 	int deg = 0, oct = 0;
-	if (lane_step[l] == NO_STEP)
-		deg = lane_key[l] > 0 ? lane_key[l] : 0;
-	else if (!tune_locked) {
+	if (lane_step[l] != NO_STEP && !tune_locked) {
 		u8 s = pat.step[l][lane_step[l]];
 		deg = s & STEP_NOTE_MASK;
 		if (e->model == DM_ACID) oct = acid_oct(s);
@@ -522,14 +517,12 @@ static void trigger_lane(int l, int vel, int step, int gate, int legato) {
 	rnd_state = rnd_state * 1664525u + 1013904223u;
 	lane_rnd[l] = (s8)(rnd_state >> 24);
 	lane_env[l] = 1.f;
-	lane_key[l] = key_deg;
-	key_deg = -1;
 	lane_vel[LANE_ALL] = vel; // all-drums modulation: touch / Env / random of the latest hit of any lane
 	lane_rnd[LANE_ALL] = lane_rnd[l];
 	lane_env[LANE_ALL] = 1.f;
 	int m = pat.lane[l].snd.model;
 	int note = m == DM_BASS || m == DM_ACID; // tune snapped to the scale (and the step's note) by compute_eff
-	if (note || fx_pitch < 0.f || lane_mods(l, 0) || lane_key[l] > 0 || (step != NO_STEP && (step_locks(l, step) || (pat.step[l][step] & STEP_NOTE_MASK)))) {
+	if (note || fx_pitch < 0.f || lane_mods(l, 0) || (step != NO_STEP && (step_locks(l, step) || (pat.step[l][step] & STEP_NOTE_MASK)))) {
 		compute_eff(l);
 		drums_note(l, &lane_eff[l], vel, gate, legato);
 		if (note || lane_mods(l, 1)) eff_live |= bit; else eff_live &= ~bit; // notes: edits still apply while they hold
@@ -811,8 +804,8 @@ static int next_pos(int l) {
 	return (start + rel) & 63;
 }
 
-// Record + Play: write a live hit onto the nearest step (deg: keyboard note, 0 = root / drum pad)
-static void live_record(int l, int vel, int deg) {
+// Record + Play: write a live hit onto the nearest step
+static void live_record(int l, int vel) {
 	if (!recording_now || !drums_play || !running)
 		return;
 	int s = lane_pos[l];
@@ -820,33 +813,22 @@ static void live_record(int l, int vel, int deg) {
 		s = next_pos(l);
 		skip_next |= 1 << l; // it just sounded live; don't play it again when the step comes
 	}
-	pat.step[l][s] = STEP_TRIG | (vel << STEP_VEL_SHIFT) | deg;
+	pat.step[l][s] = STEP_TRIG | (vel << STEP_VEL_SHIFT);
 	mark_dirty();
 }
 
 void groove_touch(int fi, int* pressure, int position) {
 	u8 bit = 1 << fi;
-	int synth = pat.lane[fi].snd.model != DM_SAMPLE || (position >> 8) == ROW_KEYS; // the keyboard never sounds a Plinky voice
+	int synth = pat.lane[fi].snd.model != DM_SAMPLE;
 	if (*pressure > HIT_PRESSURE) {
 		if (!(live_down & bit)) {
 			// a new hit counts once it reads the same drum row twice in a row (4 ms):
 			// sensor noise and the first readings of a step / mute press don't fire drums
 			int row = clampi(position >> 8, 0, 7);
-			if (row > ROW_KEYS)
+			if (row >= DRUM_ROWS)
 				hit_count[fi] = 0;
 			else if (hit_count[fi] && hit_row[fi] == row) {
-				if (++hit_count[fi] >= HIT_CONFIRM && row == ROW_KEYS) { // keyboard: key fi = scale degree fi of the selected lane
-					live_down |= bit;
-					int l = lane_sel, m = pat.lane[l].snd.model;
-					if (m != DM_SAMPLE) {
-						int vel = m == DM_ACID ? 6 : VEL_DEFAULT;
-						flash[l] = 255;
-						key_deg = fi;
-						trigger_lane(l, vel, NO_STEP, 0, 0);
-						live_record(l, vel, fi);
-					}
-				}
-				else if (hit_count[fi] >= HIT_CONFIRM) {
+				if (++hit_count[fi] >= HIT_CONFIRM) {
 					live_down |= bit;
 					if (lock_step == NO_STEP) // in step lock mode the lane stays put
 						lane_sel = fi;
@@ -854,7 +836,7 @@ void groove_touch(int fi, int* pressure, int position) {
 					int vel = row_vel[row]; // the row sets the velocity
 					if (synth)
 						trigger_lane(fi, vel, NO_STEP, 0, 0);
-					live_record(fi, vel, 0);
+					live_record(fi, vel);
 				}
 			}
 			else {
@@ -1678,9 +1660,6 @@ void groove_draw_leds(int mode) {
 			int k = (fi == lane_sel) ? 56 - y * 8 : 0;
 			led_ram[fi][y] = gamma8(maxi(k, flash[fi]));
 		}
-
-		// keyboard: root and octave a little brighter
-		led_ram[fi][ROW_KEYS] = gamma8(maxi((fi == 0 || fi == 7) ? 70 : 30, (live_down & (1 << fi)) && hit_row[fi] == ROW_KEYS ? 255 : 0));
 
 		int muted = pat.lane[fi].flags & LANE_MUTE;
 		int k = muted ? 0 : 120;
