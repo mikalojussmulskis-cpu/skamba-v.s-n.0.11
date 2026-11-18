@@ -11,7 +11,7 @@ What you get:
 - **Modulation** from Plinky's LFOs, knobs A/B, CV, the accelerometer, the hit's velocity, an envelope and randomness.
 - **24 saved Groove patterns**, separate from Plinky's own presets and patterns.
 
-**Installing.** Download the `.uf2` file from the GitHub release and flash it like any Plinky firmware update, by copying it to the Plinky's UF2 drive. The start-up screen shows a running cat and the version **v.s-n.0.11**. The Plinky always starts in normal mode; Groovebox mode is switched on by hand (see Quick start).
+**Installing.** Download the `.uf2` file from the [GitHub releases](https://github.com/mikalojussmulskis-cpu/plinky_skamba/releases) and flash it like any Plinky firmware update, by copying it to the Plinky's UF2 drive. The start-up screen shows a running cat and the version **v.s-n.0.11**. The Plinky always starts in normal mode; Groovebox mode is switched on by hand (see Quick start).
 
 ## The Plinky panel
 
@@ -307,7 +307,7 @@ The Groovebox plays up to 6 drum voices at once, and the Plinky synth is limited
 
 ## Credits and licence
 
-- skamba is a modified, unofficial firmware for the Plinky synth, based on the open-source Plinky firmware (MIT licence) by mmalex and the Plinky community.
+- skamba is a modified, unofficial firmware for the Plinky synth, based on the open-source Plinky firmware (MIT licence) by mmalex and the Plinky community. Source code and downloads: [github.com/mikalojussmulskis-cpu/plinky_skamba](https://github.com/mikalojussmulskis-cpu/plinky_skamba).
 - The LXR Drum, LXR Snare, LXR Hat and LXR Cymbal models are based on algorithms from the LXR-02 firmware by Erica Synths, released under the GNU General Public License v3 (GPL-3.0).
 - Because it includes this code, the firmware as a whole is distributed under GPL-3.0. The licence and notice files are in [`sw/lxr_license/`](../../sw/lxr_license/).
 - This firmware is **not made, approved or supported by Erica Synths** or by the makers of the Plinky. "Plinky" is the name of the original instrument; "LXR" and "LXR-02" are names of Erica Synths. These names are used here only to describe compatibility and where the algorithms come from.
