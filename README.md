@@ -1,3 +1,29 @@
+# skamba — Groovebox firmware for Plinky
+
+**skamba** is an unofficial, open-source firmware for the [Plinky](https://plinkysynth.com) touch synth. It adds a **Groovebox mode**: an 8-lane drum machine with a 64-step sequencer that runs alongside the Plinky synth.
+
+- 8 drum lanes, 24 synthesised drum engines (kicks, snares, hats, FM, glitch, LXR-based drums, a 303-style Acid line and a Bass that follow Plinky's scale, sample playback)
+- per-lane loop lengths, velocity, step locks, trigger conditions
+- whole-drum-mix filter, compressor, drive, bit-crush, delay and reverb sends
+- modulation from Plinky's LFOs, knobs, CV, accelerometer, velocity, envelope and randomness
+- 24 Groove patterns, saved automatically, separate from Plinky's presets
+
+**Manual:** [docs/skamba/MANUAL.md](docs/skamba/MANUAL.md)
+
+**Install:** download the `.uf2` from the [Releases](../../releases) page and copy it to the Plinky's UF2 drive, like any Plinky firmware update. The start-up screen shows the version (for example `v.s-n.0.11`). To go back, flash an official Plinky firmware the same way.
+
+**Build:** `cd sw/nocube_makefile && make -j8` (needs `arm-none-eabi-gcc`), then convert `RELEASE/plinkyblack.bin` with `uf2conv.py -b 0x8010000 -f 0xff6919`. The Groovebox code lives in `sw/Core/Src/groove.c`, `groove.h`, `drums.c` and `drums.h`; changes to the original Plinky files are marked `GROOVE HOOK`.
+
+### Licence and credits
+
+- skamba is based on the open-source Plinky firmware (MIT) by mmalex and the Plinky community; see the original README below.
+- The LXR Drum, LXR Snare, LXR Hat and LXR Cymbal models are ported from algorithms in the Erica Synths LXR-02 firmware (GPL-3.0). Because of this, **the skamba firmware as a whole is distributed under the GNU GPL v3**. See [LICENSE.md](LICENSE.md) and [sw/lxr_license/](sw/lxr_license/).
+- skamba is **not made, approved or supported** by the makers of Plinky or by Erica Synths. Please don't ask them for support with it; open an issue here instead. "Plinky", "LXR" and "LXR-02" are used only to describe compatibility and the origin of the algorithms.
+
+---
+
+*The original Plinky README follows.*
+
 # plinky
 
 an 8 voice touch synth - https://plinkysynth.com

@@ -44,3 +44,6 @@ hw/plinky_front_osh/plinky_front_osh-backups/
 hw/testjig/testjig-backups/
 hw/testjig/*.svg
 *.lck
+
+# original LXR source (reference only; the ported code is in sw/Core/Src/drums.c)
+sw/lxr/

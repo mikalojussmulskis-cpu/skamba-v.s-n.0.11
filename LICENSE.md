@@ -1,3 +1,16 @@
+skamba (Groovebox firmware) licence note
+==
+
+This repository is a modified version of the Plinky firmware, published as **skamba**.
+
+- The skamba firmware includes code ported from the Erica Synths LXR-02 firmware, which is licensed under the **GNU General Public License version 3** (GPL-3.0-only) with additional terms. The licence text, notice and upstream commit are in [sw/lxr_license/](sw/lxr_license/).
+- As a result, the skamba firmware **as a whole** (the source in `sw/` and any binaries built from it) is distributed under the terms of the GPL-3.0. If you distribute a binary, you must also make the corresponding source available.
+- Files that come from the original Plinky project keep their original MIT licence notice below; MIT-licensed code may be used in a GPL-3.0 work. New skamba code (`groove.c`, `groove.h`, `drums.c`, `drums.h`, the `sw/groove_mac/` simulator and the `GROOVE HOOK` changes) is released under GPL-3.0.
+- The logo, panel design and hardware licences below are unchanged.
+- skamba is not affiliated with, approved by or supported by the makers of Plinky or by Erica Synths.
+
+The original Plinky licence follows.
+
 LICENSE
 ==
 Logos & Design
