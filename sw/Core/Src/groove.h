@@ -31,7 +31,8 @@ extern volatile unsigned char groove_grid;
 
 // firmware name of Groove builds (config.h keeps Plinky's own, "v0.B4", for GROOVE=0)
 #undef VERSION2
-#define VERSION2 "v.s-n.0.11"
+#define GROOVE_VERNUM "0.12" // shown on the start screen as "sound-nest.com 0.12"
+#define VERSION2 "v.s-n." GROOVE_VERNUM
 
 // Use for one-line hooks in existing code: GROOVE_HOOK(groove_foo());
 #define GROOVE_HOOK(stmt) do { stmt; } while (0)

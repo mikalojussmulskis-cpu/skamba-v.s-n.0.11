@@ -1,4 +1,4 @@
-# skamba — Groovebox firmware for Plinky: User Manual (v.s-n.0.11)
+# skamba — Groovebox firmware for Plinky: User Manual (v.s-n.0.12)
 
 skamba is an unofficial, open-source firmware for the Plinky synth. Its Groovebox mode turns the Plinky into a drum machine with an 8-lane, 64-step sequencer, while the Plinky synth keeps playing alongside it. The drums are synthesised separately, so they don't use up the synth's voices.
 
@@ -11,7 +11,7 @@ What you get:
 - **Modulation** from Plinky's LFOs, knobs A/B, CV, the accelerometer, the hit's velocity, an envelope and randomness.
 - **24 saved Groove patterns**, separate from Plinky's own presets and patterns.
 
-**Installing.** Download the `.uf2` file from the [GitHub releases](https://github.com/mikalojussmulskis-cpu/plinky_skamba/releases) and flash it like any Plinky firmware update, by copying it to the Plinky's UF2 drive. The start-up screen shows a running cat and the version **v.s-n.0.11**. The Plinky always starts in normal mode; Groovebox mode is switched on by hand (see Quick start).
+**Installing.** Download the `.uf2` file from the [GitHub releases](https://github.com/mikalojussmulskis-cpu/plinky_skamba/releases) and flash it like any Plinky firmware update, by copying it to the Plinky's UF2 drive. The start-up screen shows a running cat and **sound-nest.com 0.12** (the version number). The Plinky always starts in normal mode; Groovebox mode is switched on by hand (see Quick start).
 
 ## The Plinky panel
 
@@ -26,7 +26,7 @@ The highlighted pad (row 2, column 7) is the **Groove** pad: Params 1 + it switc
 You can have a first beat running in about a minute:
 
 1. Hold **Params 1** (the first shift button) and tap the blank pad in **row 2, column 7**. The screen says "groove on" and the pads become the drum grid.
-2. Tap a pad in the top row to hear a lane. The default kit, left to right, is: Kick, Snare, Clap, Closed Hat, Open Hat, Rim, Bass, Acid.
+2. Tap a pad in **row 3** to hear a lane. The default kit, left to right, is: Kick, Snare, Clap, Closed Hat, Open Hat, Rim, Bass, Acid.
 3. Tap the column you want to program, then tap steps in the **bottom two rows** (16 steps).
 4. Press **Play**. The drums start; press Play again to stop.
 5. To change a lane's sound, hold **Params 1** or **Params 2** and touch a parameter pad, for example **Decay**. Then turn the encoder or slide on the left column.
@@ -38,13 +38,15 @@ To leave Groovebox mode, use Params 1 + that pad again ("groove off"). Your patt
 
 With Groovebox mode on, the 64 pads become the drum grid. Each column is one drum lane (the default kit is shown under the lane numbers).
 
-![Drum grid: 8 lanes, 5 velocity rows, mute row, 16 steps](drum-grid.png)
+> The picture below still shows the v.s-n.0.11 layout (five velocity rows). The list underneath is the current one.
 
-- **Rows 1–5 play the lane** live, from loud (row 1) to very soft (row 5). Playing a pad also **selects** that lane: the bottom rows and all sound settings then belong to it.
-- **Row 6 is the mute row.** Tap to mute or unmute a lane; hold for 0.4 s to select a lane without hearing it.
+![Drum grid: 8 lanes, velocity rows, mute row, 16 steps](drum-grid.png)
+
+- **Row 1 is a keyboard** for the selected lane. Its 8 pads play the lane's sound up Plinky's chosen scale, from the root (left) to the octave (right). It suits Bass and Acid best, but works on any drum. Its lights always glow dimly, with the root and octave a little brighter.
+- **Row 2 does nothing.** It's a resting place, so a hand playing the keyboard can't hit a drum by accident. Shift-button commands still work on it as usual.
+- **Rows 3–5 play the lane** live: row 3 loud (100 %), row 4 medium (38 %), row 5 ghost (3.5 %). Playing a pad also **selects** that lane: the keyboard, the bottom rows and all sound settings then belong to it. It also ends step lock mode.
+- **Row 6 is the mute row.** Tap to mute or unmute a lane; the tap also selects the lane. Hold for 0.4 s to select a lane without muting it.
 - **Rows 7–8 are the steps** of the selected lane, 16 at a time. Lit pads are active steps and a moving light shows the playhead.
-
-Rows 4 and 5 are very quiet. Use them for ghost notes and soft hats.
 
 ## Buttons in Groove mode
 
@@ -67,11 +69,11 @@ The **encoder** changes the setting you last touched. An **encoder click** sets 
 
 ## Making beats
 
-Each lane has 64 steps, one step per 16th note. The bottom two rows show 16 of them for the **selected lane**: the lane you last played, or held on the mute row.
+Each lane has 64 steps, one step per 16th note. The bottom two rows show 16 of them for the **selected lane**: the lane you last played or tapped on the mute row.
 
 **Steps.** Tap a step pad to turn it on or off. How hard you tap sets the step's velocity.
 
-**Live recording.** Press **Record**, then **Play**. Everything you hit on rows 1–5 is written to the nearest step, at that row's velocity. A hit late in a step goes on the next step and isn't played twice. Press Record again to stop recording.
+**Live recording.** Press **Record**, then **Play**. Everything you hit on rows 3–5 is written to the nearest step, at that row's velocity. Keyboard notes (row 1) are recorded too, with their note. A hit late in a step goes on the next step and isn't played twice. Press Record again to stop recording.
 
 **Pages.** Short press **Prev** or **Next** to see steps 17–32, 33–48 and 49–64. You can only page through steps inside the lane's loop.
 
@@ -81,7 +83,7 @@ Each lane has 64 steps, one step per 16th note. The bottom two rows show 16 of t
 
 1. Long press a step (0.4 s). It blinks; an empty step gets a hit.
 2. Change any drum setting: the change applies **only to this step**, for example a higher tune or a longer decay on one hit.
-3. Long press the step again to finish. Locked steps flicker.
+3. Long press the step again to finish, or just play a drum on rows 3–5. Locked steps flicker.
 
 An encoder click in step lock mode clears that step's locks. Turning a locked step off also clears them. A pattern holds up to 48 locks.
 
@@ -208,7 +210,7 @@ Scrolling past Acid doesn't change anything. For a different line, choose anothe
 
 Turn **Decay** low for short plucks. At maximum, notes hold at full level for as long as they're held.
 
-A step you tap on an Acid lane plays the root, at normal octave, without accent. Hitting the Acid lane on rows 1–5 plays its root note live.
+A step you tap on an Acid lane plays the root, at normal octave, without accent. Hitting the Acid lane on rows 3–5 plays its root note live; the keyboard (row 1) plays its other notes.
 
 ## All-drums controls
 
@@ -296,6 +298,7 @@ The Groovebox plays up to 6 drum voices at once, and the Plinky synth is limited
 
 | Version | Changes |
 | --- | --- |
+| v.s-n.0.12 | New grid: keyboard on row 1, a rest row, three velocity rows, mute also selects, a drum hit ends step lock mode, start screen shows sound-nest.com |
 | v.s-n.0.11 | Five velocity rows again (the test keyboard row was removed) |
 | v.s-n.0.10 | Acid lines over three octaves, Acid Decay fades held notes, quieter bottom velocity rows |
 | v.s-n.0.9 | Bass and Acid play in Plinky's key and follow its transpose |
