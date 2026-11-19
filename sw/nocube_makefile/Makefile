@@ -28,6 +28,7 @@ BUILD_TYPE ?= RELEASE
 # Groovebox build variants (each gets its own build folder):
 #   make GROOVE_STATS=1      measurement build: CPU / stack / clock overlay on the OLED
 #   make GROOVE=0            compile out all Groove hooks
+#   make NO_BOOT_CALIB=1     skip the automatic touch / CV calibration at start-up (STM32Cube .bin)
 #   make FACTORY_TEST_JIG=1  include the factory test jig code
 # GROOVE=0 FACTORY_TEST_JIG=1 must produce a binary identical to upstream v0.B4.
 VARIANT_DEFS :=
@@ -39,6 +40,10 @@ endif
 ifeq ($(GROOVE),0)
 VARIANT_DEFS += -DGROOVE_ENABLE=0
 VARIANT_SUFFIX := $(VARIANT_SUFFIX)_NOGROOVE
+endif
+ifeq ($(NO_BOOT_CALIB),1)
+VARIANT_DEFS += -DNO_BOOT_CALIB
+VARIANT_SUFFIX := $(VARIANT_SUFFIX)_NOCALIB
 endif
 ifeq ($(FACTORY_TEST_JIG),1)
 VARIANT_DEFS += -DFACTORY_TEST_JIG

@@ -3389,6 +3389,9 @@ void EMSCRIPTEN_KEEPALIVE plinky_init(void) {
 
 
 	int flashvalid = flash_readcalib();
+#ifdef NO_BOOT_CALIB // GROOVE HOOK: STM32Cube .bin build - no automatic touch / CV calibration when none is stored
+	flashvalid = 3;
+#endif
 	if (!(flashvalid & 1)) { // no calib at all
 		touch_reset_calib();
 		calib();
