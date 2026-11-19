@@ -38,9 +38,7 @@ To leave Groovebox mode, use Params 1 + that pad again ("groove off"). Your patt
 
 With Groovebox mode on, the 64 pads become the drum grid. Each column is one drum lane (the default kit is shown under the lane numbers).
 
-> The picture below still shows the v.s-n.0.11 layout (five velocity rows). The list underneath is the current one.
-
-![Drum grid: 8 lanes, velocity rows, mute row, 16 steps](drum-grid.png)
+![Drum grid: keyboard row, rest row, 3 velocity rows, mute row, 16 steps](drum-grid.png)
 
 - **Row 1 is a keyboard** for the selected lane. Its 8 pads play the lane's sound up Plinky's chosen scale, from the root (left) to the octave (right). It suits Bass and Acid best, but works on any drum. Its lights always glow dimly, with the root and octave a little brighter.
 - **Row 2 does nothing.** It's a resting place, so a hand playing the keyboard can't hit a drum by accident. Shift-button commands still work on it as usual.
